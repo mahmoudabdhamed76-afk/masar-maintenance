@@ -143,3 +143,59 @@
   border-radius: 3px;
   opacity: 0;
 }
+
+/* New Kinetic S-Wave & Orbital Animations */
+@keyframes orbitRotate {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes highwayStream {
+  0% {
+    stroke-dashoffset: 90;
+  }
+  100% {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes sonarPulseSvg {
+  0% {
+    transform: scale(0.85);
+    opacity: 0.9;
+  }
+  100% {
+    transform: scale(1.65);
+    opacity: 0;
+  }
+}
+
+@keyframes eqBounce {
+  0%,
+  100% {
+    height: 4px;
+  }
+  50% {
+    height: 11px;
+  }
+}
+
+.orbit-spin {
+  transform-origin: 57px 57px;
+  animation: orbitRotate 18s linear infinite;
+}
+
+.highway-energy-stream {
+  stroke-dasharray: 14 26;
+  animation: highwayStream 1.3s linear infinite;
+}
+
+.svg-sonar-ring {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: sonarPulseSvg 1.8s ease-out infinite;
+}

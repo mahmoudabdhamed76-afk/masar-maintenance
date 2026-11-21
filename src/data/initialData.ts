@@ -6,6 +6,26 @@ import {
   Technician,
 } from '../types/maintenance';
 
+export const WEEK_DAYS: string[] = [
+  'السبت',
+  'الأحد',
+  'الإثنين',
+  'الثلاثاء',
+  'الأربعاء',
+  'الخميس',
+  'الجمعة',
+];
+
+export const AVATAR_COLORS: string[] = [
+  '#E56B45',
+  '#3A6B98',
+  '#4E7A56',
+  '#8B5BA8',
+  '#C47D2C',
+  '#2F7E79',
+  '#B84A62',
+];
+
 export const MISSION_STAGES: StageDefinition[] = [
   {
     index: 0,
@@ -146,7 +166,10 @@ export const INITIAL_TECHNICIANS: Technician[] = [
     completedToday: 3,
     shiftStart: '08:30 ص',
     shiftEnd: '05:30 م',
+    workDays: ['السبت', 'الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس'],
     vehicle: 'فان صيانة #14 — ر م ن 4821',
+    username: 'ahmed.saeed',
+    password: 'MS-4821',
     currentCoords: { lat: 29.995, lng: 31.275, x: 46, y: 58 },
   },
   {
@@ -162,7 +185,10 @@ export const INITIAL_TECHNICIANS: Technician[] = [
     completedToday: 2,
     shiftStart: '09:00 ص',
     shiftEnd: '06:00 م',
+    workDays: ['السبت', 'الأحد', 'الإثنين', 'الثلاثاء', 'الخميس'],
     vehicle: 'سيارة خدمة #07 — أ ب ج 9130',
+    username: 'karim.tarek',
+    password: 'MS-9130',
     currentCoords: { lat: 30.0561, lng: 31.3396, x: 70, y: 36 },
   },
   {
@@ -178,7 +204,10 @@ export const INITIAL_TECHNICIANS: Technician[] = [
     completedToday: 4,
     shiftStart: '08:00 ص',
     shiftEnd: '04:30 م',
+    workDays: ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس'],
     vehicle: 'سكوتر خدمة سريع #03',
+    username: 'youssef.m',
+    password: 'MS-3074',
     currentCoords: { lat: 30.0444, lng: 31.2357, x: 44, y: 42 },
   },
   {
@@ -194,7 +223,10 @@ export const INITIAL_TECHNICIANS: Technician[] = [
     completedToday: 2,
     shiftStart: '10:00 ص',
     shiftEnd: '07:00 م',
+    workDays: ['السبت', 'الأحد', 'الثلاثاء', 'الأربعاء', 'الخميس'],
     vehicle: 'فان صيانة #09 — س ع ص 2219',
+    username: 'sara.mahmoud',
+    password: 'MS-2219',
     currentCoords: { lat: 30.032, lng: 31.42, x: 76, y: 54 },
   },
 ];

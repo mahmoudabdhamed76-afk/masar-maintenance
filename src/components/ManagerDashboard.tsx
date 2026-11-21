@@ -16,6 +16,9 @@ import {
   Users,
   Wrench,
   Activity,
+  KeyRound,
+  Settings2,
+  UserPlus,
 } from 'lucide-react';
 import { MISSION_STAGES } from '../data/initialData';
 import {
@@ -35,6 +38,9 @@ interface ManagerDashboardProps {
   selectedMissionId: string;
   onSelectMission: (id: string) => void;
   onOpenAssignModal: () => void;
+  onOpenAddTechnician: () => void;
+  onEditTechnician: (tech: Technician) => void;
+  onViewTechCredentials: (tech: Technician) => void;
   onAdvanceStage: (missionId: string) => void;
   onSetStage: (missionId: string, stage: MissionStageIndex) => void;
   onInspectAsTechnician: (techId: string, missionId: string) => void;
@@ -48,6 +54,9 @@ export const ManagerDashboard: React.FC<ManagerDashboardProps> = ({
   selectedMissionId,
   onSelectMission,
   onOpenAssignModal,
+  onOpenAddTechnician,
+  onEditTechnician,
+  onViewTechCredentials,
   onAdvanceStage,
   onSetStage,
   onInspectAsTechnician,
@@ -160,9 +169,9 @@ export const ManagerDashboard: React.FC<ManagerDashboardProps> = ({
         </div>
 
         <div className="page-actions">
-          <button type="button" className="pill-btn" onClick={() => onChangeSection('map')}>
-            <Compass size={16} color="var(--accent-coral)" />
-            خريطة GPS
+          <button type="button" className="pill-btn" onClick={onOpenAddTechnician}>
+            <UserPlus size={16} color="var(--accent-coral)" />
+            إضافة موظف وحساب
           </button>
           <button type="button" className="pill-btn primary" onClick={onOpenAssignModal}>
             <Plus size={17} />
@@ -812,100 +821,177 @@ export const ManagerDashboard: React.FC<ManagerDashboardProps> = ({
 
       {/* TECHNICIANS ROSTER SECTION */}
       {section === 'technicians' && (
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(290px, 1fr))',
-            gap: 14,
-          }}
-        >
-          {technicians.map((tech) => {
-            const techMissions = missions.filter((m) => m.technicianId === tech.id);
-            const activeMission = techMissions.find((m) => m.stage < 5) || techMissions[0];
-            return (
-              <div key={tech.id} className="card gsap-stagger">
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div className="card gsap-stagger" style={{ padding: '14px 18px' }}>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 12,
+                flexWrap: 'wrap',
+              }}
+            >
+              <div>
+                <h3 className="card-title">حسابات ومواعيد فريق الفنيين ({technicians.length})</h3>
+                <p className="card-subtitle">
+                  أضف موظفاً جديداً، حدد أيام ومواعيد ورديته، واحصل على رابط الدخول واليوزر نيم والباسورد فوراً
+                </p>
+              </div>
+              <button type="button" className="pill-btn coral" onClick={onOpenAddTechnician}>
+                <UserPlus size={16} />
+                إضافة موظف جديد وإنشاء حساب
+              </button>
+            </div>
+          </div>
+
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(310px, 1fr))',
+              gap: 14,
+            }}
+          >
+            {technicians.map((tech) => {
+              const techMissions = missions.filter((m) => m.technicianId === tech.id);
+              const activeMission = techMissions.find((m) => m.stage < 5) || techMissions[0];
+              return (
+                <div key={tech.id} className="card gsap-stagger">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+                    <div
+                      className="user-avatar"
+                      style={{
+                        width: 48,
+                        height: 48,
+                        borderRadius: 15,
+                        background: tech.avatarColor,
+                        fontSize: '1rem',
+                      }}
+                    >
+                      {tech.avatarInitials}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: '0.98rem', fontWeight: 900 }}>{tech.name}</div>
+                      <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                        {tech.role} • {tech.specialty}
+                      </div>
+                      <div
+                        dir="ltr"
+                        style={{
+                          fontSize: '0.73rem',
+                          fontWeight: 700,
+                          color: 'var(--accent-coral)',
+                          marginTop: 2,
+                          textAlign: 'right',
+                        }}
+                      >
+                        @{tech.username}
+                      </div>
+                    </div>
+                    <span
+                      className={`badge ${
+                        tech.status === 'available'
+                          ? 'resolved'
+                          : tech.status === 'en_route'
+                          ? 'normal'
+                          : 'high'
+                      }`}
+                    >
+                      {tech.status === 'available'
+                        ? 'متاح الآن'
+                        : tech.status === 'en_route'
+                        ? 'في الطريق'
+                        : 'في مهمة'}
+                    </span>
+                  </div>
+
                   <div
-                    className="user-avatar"
                     style={{
-                      width: 48,
-                      height: 48,
-                      borderRadius: 15,
-                      background: tech.avatarColor,
-                      fontSize: '1rem',
+                      display: 'grid',
+                      gridTemplateColumns: '1fr 1fr',
+                      gap: 8,
+                      padding: 11,
+                      borderRadius: 14,
+                      background: 'var(--bg-card-subtle)',
+                      fontSize: '0.77rem',
+                      fontWeight: 700,
+                      marginBottom: 10,
                     }}
                   >
-                    {tech.avatarInitials}
+                    <div>الوردية: {tech.shiftStart} - {tech.shiftEnd}</div>
+                    <div>التقييم: ⭐ {tech.rating}</div>
+                    <div>مهام اليوم: {techMissions.length}</div>
+                    <div>أُنجزت: {tech.completedToday}</div>
                   </div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: '0.98rem', fontWeight: 900 }}>{tech.name}</div>
-                    <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                      {tech.role} • {tech.specialty}
-                    </div>
+
+                  {/* Work Days Chips */}
+                  <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginBottom: 10 }}>
+                    {(tech.workDays || []).map((d) => (
+                      <span
+                        key={d}
+                        style={{
+                          fontSize: '0.7rem',
+                          fontWeight: 700,
+                          padding: '2px 8px',
+                          borderRadius: 8,
+                          background: 'var(--pastel-sage-bg)',
+                          color: 'var(--pastel-sage-text)',
+                        }}
+                      >
+                        {d}
+                      </span>
+                    ))}
                   </div>
-                  <span
-                    className={`badge ${
-                      tech.status === 'available'
-                        ? 'resolved'
-                        : tech.status === 'en_route'
-                        ? 'normal'
-                        : 'high'
-                    }`}
-                  >
-                    {tech.status === 'available'
-                      ? 'متاح الآن'
-                      : tech.status === 'en_route'
-                      ? 'في الطريق'
-                      : 'في مهمة'}
-                  </span>
-                </div>
 
-                <div
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: '1fr 1fr',
-                    gap: 8,
-                    padding: 11,
-                    borderRadius: 14,
-                    background: 'var(--bg-card-subtle)',
-                    fontSize: '0.77rem',
-                    fontWeight: 700,
-                    marginBottom: 12,
-                  }}
-                >
-                  <div>الوردية: {tech.shiftStart} - {tech.shiftEnd}</div>
-                  <div>التقييم: ⭐ {tech.rating}</div>
-                  <div>مهام اليوم: {techMissions.length}</div>
-                  <div>أُنجزت: {tech.completedToday}</div>
-                </div>
+                  <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: 12 }}>
+                    🚐 {tech.vehicle}
+                  </div>
 
-                <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: 12 }}>
-                  🚐 {tech.vehicle}
-                </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+                    <button
+                      type="button"
+                      className="pill-btn"
+                      style={{ justifyContent: 'center', height: 35, fontSize: '0.76rem' }}
+                      onClick={() => onEditTechnician(tech)}
+                    >
+                      <Settings2 size={14} />
+                      تعديل المواعيد
+                    </button>
+                    <button
+                      type="button"
+                      className="pill-btn soft-alert"
+                      style={{ justifyContent: 'center', height: 35, fontSize: '0.76rem' }}
+                      onClick={() => onViewTechCredentials(tech)}
+                    >
+                      <KeyRound size={14} />
+                      الرابط والباسورد
+                    </button>
+                  </div>
 
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <a
-                    href={`tel:${tech.phone}`}
-                    className="pill-btn"
-                    style={{ flex: 1, justifyContent: 'center', height: 36, textDecoration: 'none' }}
-                  >
-                    <Phone size={14} />
-                    اتصال
-                  </a>
-                  <button
-                    type="button"
-                    className="pill-btn primary"
-                    style={{ flex: 1.4, justifyContent: 'center', height: 36 }}
-                    onClick={() =>
-                      onInspectAsTechnician(tech.id, activeMission?.id || missions[0].id)
-                    }
-                  >
-                    فتح صفحة الفني
-                  </button>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <a
+                      href={`tel:${tech.phone}`}
+                      className="pill-btn"
+                      style={{ flex: 1, justifyContent: 'center', height: 35, fontSize: '0.77rem', textDecoration: 'none' }}
+                    >
+                      <Phone size={14} />
+                      اتصال
+                    </a>
+                    <button
+                      type="button"
+                      className="pill-btn primary"
+                      style={{ flex: 1.5, justifyContent: 'center', height: 35, fontSize: '0.77rem' }}
+                      onClick={() =>
+                        onInspectAsTechnician(tech.id, activeMission?.id || '')
+                      }
+                    >
+                      فتح صفحة الفني
+                    </button>
+                  </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
       )}
     </div>

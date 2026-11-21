@@ -2,12 +2,14 @@ import React, { useEffect, useRef } from 'react';
 import gsap from 'gsap';
 import {
   CalendarClock,
+  CalendarDays,
   CheckCircle2,
   Circle,
   ClipboardList,
   Clock,
   ExternalLink,
   FileText,
+  LogOut,
   MapPin,
   Package,
   Phone,
@@ -39,6 +41,8 @@ interface TechnicianPortalProps {
   onSetStage: (missionId: string, stage: MissionStageIndex) => void;
   onToggleChecklist: (missionId: string, itemId: string) => void;
   onUpdateNotes: (missionId: string, notes: string) => void;
+  lockedToEmployee?: boolean;
+  onLogoutEmployee?: () => void;
 }
 
 export const TechnicianPortal: React.FC<TechnicianPortalProps> = ({
@@ -54,6 +58,8 @@ export const TechnicianPortal: React.FC<TechnicianPortalProps> = ({
   onSetStage,
   onToggleChecklist,
   onUpdateNotes,
+  lockedToEmployee = false,
+  onLogoutEmployee,
 }) => {
   const portalRef = useRef<HTMLDivElement>(null);
 
@@ -64,7 +70,7 @@ export const TechnicianPortal: React.FC<TechnicianPortalProps> = ({
     myMissions.find((m) => m.id === selectedMissionId) ||
     myMissions.find((m) => m.stage < 5) ||
     myMissions[0] ||
-    missions[0];
+    null;
 
   useEffect(() => {
     const ctx = gsap.context(() => {
@@ -109,29 +115,48 @@ export const TechnicianPortal: React.FC<TechnicianPortalProps> = ({
           </button>
         </div>
 
-        {/* Switch Technician Selector */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-muted)' }}>
-            حساب الفني:
-          </span>
-          <select
-            className="form-select"
-            style={{ width: 'auto', padding: '6px 12px', fontSize: '0.82rem' }}
-            value={currentTech.id}
-            onChange={(e) => {
-              const nextId = e.target.value;
-              onChangeTechId(nextId);
-              const firstForTech = missions.find((m) => m.technicianId === nextId);
-              if (firstForTech) onSelectMission(firstForTech.id);
-            }}
-          >
-            {technicians.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name} — {t.specialty}
-              </option>
-            ))}
-          </select>
-        </div>
+        {/* Switch Technician Selector (hidden when logged in as a standalone employee) */}
+        {lockedToEmployee ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: '0.78rem', fontWeight: 800, color: 'var(--text-muted)' }} dir="ltr">
+              @{currentTech.username}
+            </span>
+            {onLogoutEmployee && (
+              <button
+                type="button"
+                className="pill-btn"
+                style={{ height: 34, fontSize: '0.77rem' }}
+                onClick={onLogoutEmployee}
+              >
+                <LogOut size={14} />
+                تسجيل خروج
+              </button>
+            )}
+          </div>
+        ) : (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-muted)' }}>
+              حساب الفني:
+            </span>
+            <select
+              className="form-select"
+              style={{ width: 'auto', padding: '6px 12px', fontSize: '0.82rem' }}
+              value={currentTech.id}
+              onChange={(e) => {
+                const nextId = e.target.value;
+                onChangeTechId(nextId);
+                const firstForTech = missions.find((m) => m.technicianId === nextId);
+                if (firstForTech) onSelectMission(firstForTech.id);
+              }}
+            >
+              {technicians.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name} — {t.specialty}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
       </div>
 
       {/* Technician Welcome & Shift Banner */}
@@ -193,6 +218,27 @@ export const TechnicianPortal: React.FC<TechnicianPortalProps> = ({
                 <span>•</span>
                 <span>🚐 {currentTech.vehicle}</span>
               </div>
+              {currentTech.workDays?.length > 0 && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap', marginTop: 7 }}>
+                  <CalendarDays size={13} color="var(--accent-coral)" />
+                  {currentTech.workDays.map((day) => (
+                    <span
+                      key={day}
+                      style={{
+                        fontSize: '0.7rem',
+                        fontWeight: 700,
+                        padding: '2px 8px',
+                        borderRadius: 8,
+                        background: 'var(--bg-elevated)',
+                        border: '1px solid var(--border-soft)',
+                        color: 'var(--text-secondary)',
+                      }}
+                    >
+                      {day}
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 
@@ -232,6 +278,24 @@ export const TechnicianPortal: React.FC<TechnicianPortalProps> = ({
           </div>
         </div>
       </div>
+
+      {/* EMPTY STATE IF NEW EMPLOYEE HAS NO ASSIGNED MISSIONS YET */}
+      {section === 'active' && !activeMission && (
+        <div className="card tech-stagger" style={{ textAlign: 'center', padding: '42px 24px' }}>
+          <div
+            className="brand-logo-box"
+            style={{ margin: '0 auto 14px', width: 60, height: 60 }}
+          >
+            <Wrench size={28} />
+          </div>
+          <h3 style={{ margin: '0 0 6px', fontSize: '1.15rem', fontWeight: 900 }}>
+            حسابك نشط ومستعد لاستلام البلاغات!
+          </h3>
+          <p style={{ margin: '0 auto', maxWidth: 420, fontSize: '0.84rem', color: 'var(--text-secondary)' }}>
+            لا توجد مهام صيانة مُسندة حالياً لحساب {currentTech.name}. بمجرد قيام المدير بتعيين مهمة جديدة لك سيظهر بار الرحلة المتحرك وتفاصيل اللوكيشن هنا فوراً.
+          </p>
+        </div>
+      )}
 
       {/* ACTIVE MISSION & GSAP PROGRESS TRACKER */}
       {section === 'active' && activeMission && (

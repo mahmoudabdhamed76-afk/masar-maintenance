@@ -47,7 +47,10 @@ export interface Technician {
   completedToday: number;
   shiftStart: string;
   shiftEnd: string;
+  workDays: string[];
   vehicle: string;
+  username: string;
+  password: string;
   currentCoords: GeoPoint;
 }
 
@@ -72,9 +75,9 @@ export interface MaintenanceMission {
   priority: PriorityLevel;
   technicianId: string;
   site: SiteLocation;
-  scheduledDate: string; // e.g. "اليوم" | "غداً"
-  scheduledTime: string; // e.g. "10:00 ص"
-  estimatedDuration: string; // e.g. "45 دقيقة"
+  scheduledDate: string;
+  scheduledTime: string;
+  estimatedDuration: string;
   distanceKm: number;
   etaMinutes: number;
   stage: MissionStageIndex;
