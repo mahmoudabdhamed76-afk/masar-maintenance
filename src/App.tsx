@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Bell,
   Building2,
@@ -9,6 +9,7 @@ import {
   Menu,
   Moon,
   Plus,
+  Radio,
   Shield,
   Sun,
   UserPlus,
@@ -18,10 +19,12 @@ import {
 } from 'lucide-react';
 import { AddTechnicianModal } from './components/AddTechnicianModal';
 import { AssignMissionModal } from './components/AssignMissionModal';
+import { ClientTrackingPage } from './components/ClientTrackingPage';
 import { EmployeeLoginGate } from './components/EmployeeLoginGate';
 import { ManagerDashboard } from './components/ManagerDashboard';
 import { TechnicianPortal } from './components/TechnicianPortal';
 import {
+  INITIAL_LOCATION_LOGS,
   INITIAL_MISSIONS,
   INITIAL_NOTIFICATIONS,
   INITIAL_TECHNICIANS,
@@ -30,6 +33,7 @@ import {
 import {
   ActivePortal,
   AppNotification,
+  LocationLogEntry,
   MaintenanceMission,
   ManagerSection,
   MissionStageIndex,
@@ -39,6 +43,7 @@ import {
 import { decodeTechToken } from './utils/inviteLink';
 
 const STORAGE_KEY = 'masar_maintenance_state_v2';
+const SYNC_CHANNEL = 'masar_live_sync_v2';
 
 interface ToastMessage {
   id: string;
@@ -47,31 +52,61 @@ interface ToastMessage {
 
 function readInitialInviteFromUrl(): {
   isEmployeeLink: boolean;
+  isClientLink: boolean;
+  trackCode: string;
   prefillUsername: string;
   invitedTech: Technician | null;
 } {
   if (typeof window === 'undefined') {
-    return { isEmployeeLink: false, prefillUsername: '', invitedTech: null };
+    return {
+      isEmployeeLink: false,
+      isClientLink: false,
+      trackCode: '',
+      prefillUsername: '',
+      invitedTech: null,
+    };
   }
   const params = new URLSearchParams(window.location.search);
   const portalParam = params.get('portal');
+  const trackParam = params.get('track') || '';
   const uParam = params.get('u') || '';
   const accParam = params.get('acc') || '';
   const decoded = accParam ? decodeTechToken(accParam) : null;
-  const isEmployeeLink = portalParam === 'employee' || Boolean(decoded);
+  const isClientLink = portalParam === 'client' || Boolean(trackParam);
+  const isEmployeeLink = !isClientLink && (portalParam === 'employee' || Boolean(decoded));
   return {
     isEmployeeLink,
+    isClientLink,
+    trackCode: trackParam,
     prefillUsername: uParam || decoded?.username || '',
     invitedTech: decoded,
   };
 }
 
+/**
+ * Convert real latitude/longitude to a clean 12..88 map canvas coordinate
+ * anchored around Greater Cairo (and clamped nicely for any global location).
+ */
+function geoToCanvasPoint(lat: number, lng: number): { x: number; y: number } {
+  const minLng = 30.92;
+  const maxLng = 31.56;
+  const minLat = 29.90;
+  const maxLat = 30.16;
+  const normX = ((lng - minLng) / (maxLng - minLng)) * 76 + 12;
+  const normY = ((maxLat - lat) / (maxLat - minLat)) * 76 + 12;
+  return {
+    x: Math.round(Math.max(12, Math.min(88, normX))),
+    y: Math.round(Math.max(12, Math.min(88, normY))),
+  };
+}
+
 export const App: React.FC = () => {
   const urlInvite = readInitialInviteFromUrl();
+  const isReceivingRemoteSync = useRef(false);
 
   const [darkMode, setDarkMode] = useState<boolean>(false);
   const [portal, setPortal] = useState<ActivePortal>(
-    urlInvite.isEmployeeLink ? 'technician' : 'manager'
+    urlInvite.isClientLink ? 'client' : urlInvite.isEmployeeLink ? 'technician' : 'manager'
   );
   const [managerSection, setManagerSection] = useState<ManagerSection>('overview');
   const [techSection, setTechSection] = useState<TechSection>('home');
@@ -84,7 +119,7 @@ export const App: React.FC = () => {
   const [editingTech, setEditingTech] = useState<Technician | null>(null);
   const [viewTechCredsOnly, setViewTechCredsOnly] = useState<boolean>(false);
 
-  // Standalone Employee Login Gate State (triggered by direct link or manager test button)
+  // Standalone Employee Login Gate State
   const [showEmployeeLogin, setShowEmployeeLogin] = useState<boolean>(
     urlInvite.isEmployeeLink
   );
@@ -140,10 +175,34 @@ export const App: React.FC = () => {
     return base;
   });
 
+  const [locationLogs, setLocationLogs] = useState<LocationLogEntry[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed.locationLogs) && parsed.locationLogs.length > 0) {
+          return parsed.locationLogs;
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return INITIAL_LOCATION_LOGS;
+  });
+
   const [activeTechId, setActiveTechId] = useState<string>(
     urlInvite.invitedTech?.id || INITIAL_TECHNICIANS[0].id
   );
-  const [selectedMissionId, setSelectedMissionId] = useState<string>(INITIAL_MISSIONS[0].id);
+  const [selectedMissionId, setSelectedMissionId] = useState<string>(() => {
+    if (urlInvite.trackCode) {
+      const found = INITIAL_MISSIONS.find(
+        (m) => m.code.toLowerCase() === urlInvite.trackCode.toLowerCase()
+      );
+      if (found) return found.id;
+    }
+    return INITIAL_MISSIONS[0].id;
+  });
+
   const [notifications, setNotifications] = useState<AppNotification[]>(INITIAL_NOTIFICATIONS);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
@@ -151,13 +210,68 @@ export const App: React.FC = () => {
     document.documentElement.setAttribute('data-theme', darkMode ? 'dark' : 'light');
   }, [darkMode]);
 
+  // Persist & Broadcast live updates across tabs (Technician <-> Patient Tracking <-> Manager!)
   useEffect(() => {
+    if (isReceivingRemoteSync.current) {
+      isReceivingRemoteSync.current = false;
+      return;
+    }
+    const payload = { missions, technicians, locationLogs };
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ missions, technicians }));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+      if (typeof BroadcastChannel !== 'undefined') {
+        const bc = new BroadcastChannel(SYNC_CHANNEL);
+        bc.postMessage(payload);
+        bc.close();
+      }
     } catch {
       // ignore storage errors
     }
-  }, [missions, technicians]);
+  }, [missions, technicians, locationLogs]);
+
+  // Listen for live cross-tab broadcasts & storage events so Patient & Manager pages animate immediately!
+  useEffect(() => {
+    const applyIncoming = (parsed: {
+      missions?: MaintenanceMission[];
+      technicians?: Technician[];
+      locationLogs?: LocationLogEntry[];
+    }) => {
+      if (!parsed) return;
+      isReceivingRemoteSync.current = true;
+      if (Array.isArray(parsed.missions) && parsed.missions.length > 0) {
+        setMissions(parsed.missions);
+      }
+      if (Array.isArray(parsed.technicians) && parsed.technicians.length > 0) {
+        setTechnicians(parsed.technicians);
+      }
+      if (Array.isArray(parsed.locationLogs)) {
+        setLocationLogs(parsed.locationLogs);
+      }
+    };
+
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === STORAGE_KEY && e.newValue) {
+        try {
+          applyIncoming(JSON.parse(e.newValue));
+        } catch {
+          // ignore
+        }
+      }
+    };
+
+    window.addEventListener('storage', handleStorage);
+
+    let bc: BroadcastChannel | null = null;
+    if (typeof BroadcastChannel !== 'undefined') {
+      bc = new BroadcastChannel(SYNC_CHANNEL);
+      bc.onmessage = (ev) => applyIncoming(ev.data);
+    }
+
+    return () => {
+      window.removeEventListener('storage', handleStorage);
+      if (bc) bc.close();
+    };
+  }, []);
 
   // Keep technicians' live statuses synchronized with their missions
   useEffect(() => {
@@ -266,6 +380,61 @@ export const App: React.FC = () => {
     );
   };
 
+  // Real GPS Location Update from Employee Device -> Updates Map + Records Audit Log for Manager!
+  const handleReportGpsLocation = (
+    techId: string,
+    lat: number,
+    lng: number,
+    accuracyMeters: number | undefined,
+    eventLabel: string
+  ) => {
+    const nowTime = new Date().toLocaleTimeString('ar-EG', {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+    const canvasPt = geoToCanvasPoint(lat, lng);
+    const tech = technicians.find((t) => t.id === techId);
+    const techName = tech?.name || 'فني ميداني';
+
+    setTechnicians((prev) =>
+      prev.map((t) =>
+        t.id === techId
+          ? {
+              ...t,
+              gpsEnabled: true,
+              lastLocationUpdatedAt: nowTime,
+              locationAccuracy: accuracyMeters,
+              currentCoords: {
+                lat: Number(lat.toFixed(6)),
+                lng: Number(lng.toFixed(6)),
+                x: canvasPt.x,
+                y: canvasPt.y,
+              },
+            }
+          : t
+      )
+    );
+
+    const newLog: LocationLogEntry = {
+      id: `loc-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      technicianId: techId,
+      technicianName: techName,
+      lat: Number(lat.toFixed(6)),
+      lng: Number(lng.toFixed(6)),
+      accuracyMeters,
+      event: eventLabel,
+      timestamp: nowTime,
+    };
+
+    setLocationLogs((prev) => [newLog, ...prev].slice(0, 40));
+    pushToast(`تم تسجيل موقع ${techName} عبر GPS بنجاح`);
+    addNotification(
+      `تحديث موقع GPS — ${techName}`,
+      `${eventLabel} (${lat.toFixed(4)}, ${lng.toFixed(4)})`,
+      'success'
+    );
+  };
+
   const handleToggleChecklist = (missionId: string, itemId: string) => {
     setMissions((prev) =>
       prev.map((m) => {
@@ -296,6 +465,13 @@ export const App: React.FC = () => {
     if (missionId) setSelectedMissionId(missionId);
     setPortal('technician');
     setTechSection('home');
+    setSidebarOpen(false);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleOpenClientTracking = (missionId: string) => {
+    if (missionId) setSelectedMissionId(missionId);
+    setPortal('client');
     setSidebarOpen(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -354,7 +530,7 @@ export const App: React.FC = () => {
     }
   };
 
-  // Dedicated Employee Login Screen (when opening an employee's private link)
+  // Dedicated Employee Login Screen
   if (showEmployeeLogin) {
     return (
       <EmployeeLoginGate
@@ -367,9 +543,44 @@ export const App: React.FC = () => {
     );
   }
 
+  // PATIENT / CLIENT LIVE TRACKING PAGE
+  if (portal === 'client') {
+    return (
+      <>
+        <ClientTrackingPage
+          missions={missions}
+          technicians={technicians}
+          selectedMissionId={selectedMissionId}
+          onSelectMission={setSelectedMissionId}
+          onSetStageForPreview={handleSetStage}
+          darkMode={darkMode}
+          onToggleDarkMode={() => setDarkMode((d) => !d)}
+          standaloneClientLink={urlInvite.isClientLink}
+          onSwitchToManager={urlInvite.isClientLink ? undefined : () => setPortal('manager')}
+          onSwitchToTechnician={
+            urlInvite.isClientLink
+              ? undefined
+              : () => {
+                  setPortal('technician');
+                  setTechSection('home');
+                }
+          }
+        />
+        <div className="toast-container">
+          {toasts.map((t) => (
+            <div key={t.id} className="toast-pill">
+              <CheckCircle2 size={16} color="#34D399" />
+              <span>{t.text}</span>
+            </div>
+          ))}
+        </div>
+      </>
+    );
+  }
+
   const isStandaloneEmployeeSession = Boolean(loggedInEmployeeId);
 
-  // NATIVE STANDALONE EMPLOYEE APP SHELL (Clean mobile-first experience inspired by reference!)
+  // NATIVE STANDALONE EMPLOYEE APP SHELL
   if (portal === 'technician' || isStandaloneEmployeeSession) {
     return (
       <>
@@ -388,6 +599,7 @@ export const App: React.FC = () => {
           onUpdateNotes={handleUpdateNotes}
           onCreateQuickTask={handleCreateMission}
           onSendAdminPing={handleSendAdminPing}
+          onReportGpsLocation={handleReportGpsLocation}
           darkMode={darkMode}
           onToggleDarkMode={() => setDarkMode((d) => !d)}
           lockedToEmployee={isStandaloneEmployeeSession}
@@ -397,7 +609,6 @@ export const App: React.FC = () => {
           }
         />
 
-        {/* TOASTS */}
         <div className="toast-container">
           {toasts.map((t) => (
             <div key={t.id} className="toast-pill">
@@ -417,7 +628,6 @@ export const App: React.FC = () => {
 
   return (
     <div className="app-shell">
-      {/* Mobile Sidebar Backdrop */}
       <div
         className={`sidebar-overlay ${sidebarOpen ? 'open' : ''}`}
         onClick={() => setSidebarOpen(false)}
@@ -470,7 +680,7 @@ export const App: React.FC = () => {
             }}
           >
             <MapPin size={18} />
-            <span>خريطة اللوكيشن GPS</span>
+            <span>خريطة وسجل GPS</span>
             <span className="nav-badge live">{activeCount}</span>
           </button>
 
@@ -500,7 +710,7 @@ export const App: React.FC = () => {
           </button>
 
           <div className="nav-section-label" style={{ marginTop: 10 }}>
-            معاينة تطبيق الموظف
+            البوابات المباشرة
           </div>
 
           <button
@@ -513,7 +723,16 @@ export const App: React.FC = () => {
             }}
           >
             <Wrench size={18} />
-            <span>فتح تطبيق الفني</span>
+            <span>تطبيق الموظف / الفني</span>
+          </button>
+
+          <button
+            type="button"
+            className="nav-item"
+            onClick={() => handleOpenClientTracking(selectedMissionId)}
+          >
+            <Radio size={18} color="var(--accent-coral)" />
+            <span>صفحة المريض / المتابعة</span>
           </button>
         </nav>
 
@@ -527,7 +746,6 @@ export const App: React.FC = () => {
 
       {/* MAIN WORKSPACE */}
       <main className="main-area">
-        {/* TOP HEADER BAR */}
         <header className="topbar">
           <div className="topbar-right">
             <button
@@ -560,7 +778,7 @@ export const App: React.FC = () => {
                 onClick={() => setPortal('manager')}
               >
                 <Shield size={15} />
-                صفحة المدير
+                المدير
               </button>
               <button
                 type="button"
@@ -571,7 +789,15 @@ export const App: React.FC = () => {
                 }}
               >
                 <Wrench size={15} />
-                صفحة الفني / الموظف
+                الموظف
+              </button>
+              <button
+                type="button"
+                className="role-tab"
+                onClick={() => handleOpenClientTracking(selectedMissionId)}
+              >
+                <Radio size={15} />
+                صفحة المريض
               </button>
             </div>
           </div>
@@ -619,7 +845,6 @@ export const App: React.FC = () => {
               <span>تعيين صيانة</span>
             </button>
 
-            {/* Notifications Popover */}
             {notifOpen && (
               <div
                 className="card"
@@ -689,6 +914,7 @@ export const App: React.FC = () => {
           onChangeSection={setManagerSection}
           missions={missions}
           technicians={technicians}
+          locationLogs={locationLogs}
           selectedMissionId={selectedMissionId}
           onSelectMission={setSelectedMissionId}
           onOpenAssignModal={() => setAssignModalOpen(true)}
@@ -698,6 +924,7 @@ export const App: React.FC = () => {
           onAdvanceStage={handleAdvanceStage}
           onSetStage={handleSetStage}
           onInspectAsTechnician={handleInspectAsTechnician}
+          onOpenClientTracking={handleOpenClientTracking}
         />
       </main>
 
@@ -714,15 +941,6 @@ export const App: React.FC = () => {
 
         <button
           type="button"
-          className={`mobile-nav-btn ${managerSection === 'technicians' ? 'active' : ''}`}
-          onClick={() => setManagerSection('technicians')}
-        >
-          <Users size={18} />
-          <span>الموظفون</span>
-        </button>
-
-        <button
-          type="button"
           className="mobile-nav-btn"
           onClick={() => {
             setPortal('technician');
@@ -730,7 +948,16 @@ export const App: React.FC = () => {
           }}
         >
           <Wrench size={18} />
-          <span>صفحة الفني</span>
+          <span>الموظف</span>
+        </button>
+
+        <button
+          type="button"
+          className="mobile-nav-btn"
+          onClick={() => handleOpenClientTracking(selectedMissionId)}
+        >
+          <Radio size={18} />
+          <span>المريض</span>
         </button>
 
         <button
@@ -743,7 +970,6 @@ export const App: React.FC = () => {
         </button>
       </nav>
 
-      {/* ASSIGN NEW MISSION MODAL */}
       <AssignMissionModal
         open={assignModalOpen}
         technicians={technicians}
@@ -751,7 +977,6 @@ export const App: React.FC = () => {
         onCreate={handleCreateMission}
       />
 
-      {/* ADD / EDIT EMPLOYEE + GENERATED CREDENTIALS & LINK MODAL */}
       <AddTechnicianModal
         open={techModalOpen}
         editingTech={editingTech}
@@ -761,7 +986,6 @@ export const App: React.FC = () => {
         onPreviewEmployeeLogin={handlePreviewEmployeeLogin}
       />
 
-      {/* TOASTS */}
       <div className="toast-container">
         {toasts.map((t) => (
           <div key={t.id} className="toast-pill">

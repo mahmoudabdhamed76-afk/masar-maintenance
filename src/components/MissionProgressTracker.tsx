@@ -21,9 +21,10 @@ import { MaintenanceMission, MissionStageIndex, Technician } from '../types/main
 interface MissionProgressTrackerProps {
   mission: MaintenanceMission;
   technician?: Technician;
-  onAdvanceStage: (missionId: string) => void;
-  onSetStage: (missionId: string, stage: MissionStageIndex) => void;
+  onAdvanceStage?: (missionId: string) => void;
+  onSetStage?: (missionId: string, stage: MissionStageIndex) => void;
   compact?: boolean;
+  readOnly?: boolean;
 }
 
 const STAGE_ICONS = [BellRing, ClipboardCheck, Truck, MapPin, Wrench, CheckCircle2];
@@ -45,6 +46,7 @@ export const MissionProgressTracker: React.FC<MissionProgressTrackerProps> = ({
   onAdvanceStage,
   onSetStage,
   compact = false,
+  readOnly = false,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const pathRef = useRef<SVGPathElement>(null);
@@ -279,6 +281,7 @@ export const MissionProgressTracker: React.FC<MissionProgressTrackerProps> = ({
   }, [mission.stage, mission.id, mission.distanceKm, currentStageDef.percent, currentStageDef.color]);
 
   const handleToggleSimulation = () => {
+    if (!onSetStage) return;
     if (isSimulating) {
       if (simTimerRef.current) window.clearInterval(simTimerRef.current);
       setIsSimulating(false);
@@ -562,8 +565,8 @@ export const MissionProgressTracker: React.FC<MissionProgressTrackerProps> = ({
             return (
               <g
                 key={st.id}
-                onClick={() => onSetStage(mission.id, st.index)}
-                style={{ cursor: 'pointer' }}
+                onClick={() => !readOnly && onSetStage && onSetStage(mission.id, st.index)}
+                style={{ cursor: readOnly ? 'default' : 'pointer' }}
               >
                 {isCurrent && (
                   <circle
@@ -651,8 +654,10 @@ export const MissionProgressTracker: React.FC<MissionProgressTrackerProps> = ({
             <button
               key={stage.id}
               type="button"
-              onClick={() => onSetStage(mission.id, stage.index)}
+              disabled={readOnly}
+              onClick={() => !readOnly && onSetStage && onSetStage(mission.id, stage.index)}
               className={`kinetic-step-card ${isDone ? 'done' : ''} ${isCurrent ? 'current' : ''}`}
+              style={readOnly ? { cursor: 'default' } : undefined}
             >
               <div className="kinetic-step-top">
                 <span className="kinetic-step-num">{stage.index + 1}</span>
@@ -671,64 +676,91 @@ export const MissionProgressTracker: React.FC<MissionProgressTrackerProps> = ({
       </div>
 
       {/* Action Controls Bar */}
-      <div className="tracker-controls">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <button
-            type="button"
-            className="pill-btn"
-            onClick={handleToggleSimulation}
-            style={{
-              background: isSimulating ? 'var(--pastel-peach-bg)' : undefined,
-              borderColor: isSimulating ? 'var(--accent-coral)' : undefined,
-            }}
-          >
-            <Play size={15} />
-            {isSimulating ? 'إيقاف المحاكاة' : 'محاكاة المسار الموجي (GSAP)'}
-          </button>
-
-          {mission.stage > 0 && (
+      {readOnly ? (
+        <div className="tracker-controls">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap' }}>
+            <span className="live-dot" />
+            <span style={{ fontSize: '0.82rem', fontWeight: 800, color: 'var(--text-secondary)' }}>
+              {mission.stage === 5
+                ? 'تم إنهاء الزيارة بنجاح — شكراً لتواصلك مع مسار الصيانة'
+                : 'يتم تحديث المسار والأنيميشن تلقائياً لحظة بلحظة مع تحرك الفني'}
+            </span>
+          </div>
+          {onSetStage && (
             <button
               type="button"
               className="pill-btn"
-              onClick={() => onSetStage(mission.id, 0)}
-              title="إعادة البلاغ للبداية"
+              onClick={handleToggleSimulation}
+              style={{
+                background: isSimulating ? 'var(--pastel-peach-bg)' : undefined,
+                borderColor: isSimulating ? 'var(--accent-coral)' : undefined,
+              }}
             >
-              <RotateCcw size={15} />
-              إعادة من البداية
+              <Play size={15} />
+              {isSimulating ? 'إيقاف العرض التجريبي' : 'معاينة حركة المسار كاملة'}
             </button>
           )}
-
-          <a
-            href={`https://www.google.com/maps/search/?api=1&query=${mission.site.coords.lat},${mission.site.coords.lng}`}
-            target="_blank"
-            rel="noreferrer"
-            className="pill-btn"
-            style={{ textDecoration: 'none' }}
-          >
-            <Navigation size={15} color="var(--accent-coral)" />
-            فتح اللوكيشن GPS
-          </a>
         </div>
+      ) : (
+        <div className="tracker-controls">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              className="pill-btn"
+              onClick={handleToggleSimulation}
+              style={{
+                background: isSimulating ? 'var(--pastel-peach-bg)' : undefined,
+                borderColor: isSimulating ? 'var(--accent-coral)' : undefined,
+              }}
+            >
+              <Play size={15} />
+              {isSimulating ? 'إيقاف المحاكاة' : 'محاكاة المسار الموجي (GSAP)'}
+            </button>
 
-        <button
-          type="button"
-          disabled={mission.stage === 5}
-          onClick={() => onAdvanceStage(mission.id)}
-          className={`primary-advance-btn ${mission.stage === 5 ? 'complete-state' : ''}`}
-        >
-          {mission.stage === 5 ? (
-            <>
-              <Sparkles size={18} />
-              تم حل المشكلة وتسليم المركز
-            </>
-          ) : (
-            <>
-              <span>{currentStageDef.actionLabel}</span>
-              <ArrowLeft size={18} />
-            </>
-          )}
-        </button>
-      </div>
+            {mission.stage > 0 && onSetStage && (
+              <button
+                type="button"
+                className="pill-btn"
+                onClick={() => onSetStage(mission.id, 0)}
+                title="إعادة البلاغ للبداية"
+              >
+                <RotateCcw size={15} />
+                إعادة من البداية
+              </button>
+            )}
+
+            <a
+              href={`https://www.google.com/maps/search/?api=1&query=${mission.site.coords.lat},${mission.site.coords.lng}`}
+              target="_blank"
+              rel="noreferrer"
+              className="pill-btn"
+              style={{ textDecoration: 'none' }}
+            >
+              <Navigation size={15} color="var(--accent-coral)" />
+              فتح اللوكيشن GPS
+            </a>
+          </div>
+
+          <button
+            type="button"
+            disabled={mission.stage === 5}
+            onClick={() => onAdvanceStage && onAdvanceStage(mission.id)}
+            className={`primary-advance-btn ${mission.stage === 5 ? 'complete-state' : ''}`}
+          >
+            {mission.stage === 5 ? (
+              <>
+                <Sparkles size={18} />
+                تم حل المشكلة وتسليم المركز
+              </>
+            ) : (
+              <>
+                <span>{currentStageDef.actionLabel}</span>
+                <ArrowLeft size={18} />
+              </>
+            )}
+          </button>
+        </div>
+      )}
     </div>
   );
 };

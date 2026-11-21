@@ -1,5 +1,6 @@
 import {
   AppNotification,
+  LocationLogEntry,
   MaintenanceMission,
   SiteLocation,
   StageDefinition,
@@ -405,5 +406,38 @@ export const INITIAL_NOTIFICATIONS: AppNotification[] = [
     time: 'منذ 45 دقيقة',
     type: 'success',
     unread: false,
+  },
+];
+
+export const INITIAL_LOCATION_LOGS: LocationLogEntry[] = [
+  {
+    id: 'loc-1',
+    technicianId: 'tech-1',
+    technicianName: 'م. أحمد السعيد',
+    lat: 29.995,
+    lng: 31.275,
+    accuracyMeters: 14,
+    event: 'تحديث موقع GPS — في الطريق للمعادي',
+    timestamp: '10:02 ص',
+  },
+  {
+    id: 'loc-2',
+    technicianId: 'tech-2',
+    technicianName: 'م. كريم طارق',
+    lat: 30.0561,
+    lng: 31.3396,
+    accuracyMeters: 9,
+    event: 'تسجيل وصول للمركز (مدينة نصر)',
+    timestamp: '09:32 ص',
+  },
+  {
+    id: 'loc-3',
+    technicianId: 'tech-4',
+    technicianName: 'م. سارة محمود',
+    lat: 30.032,
+    lng: 31.42,
+    accuracyMeters: 18,
+    event: 'تسجيل حضور وبداية الوردية GPS',
+    timestamp: '10:00 ص',
   },
 ];

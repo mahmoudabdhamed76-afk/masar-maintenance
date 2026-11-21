@@ -7,9 +7,11 @@ import {
   Circle,
   ClipboardList,
   Clock,
+  Crosshair,
   ExternalLink,
   FileText,
   Home,
+  LocateFixed,
   LogIn,
   LogOut,
   MapPin,
@@ -51,6 +53,13 @@ interface TechnicianPortalProps {
   onUpdateNotes: (missionId: string, notes: string) => void;
   onCreateQuickTask: (mission: MaintenanceMission) => void;
   onSendAdminPing: (techName: string, message: string) => void;
+  onReportGpsLocation: (
+    techId: string,
+    lat: number,
+    lng: number,
+    accuracyMeters: number | undefined,
+    eventLabel: string
+  ) => void;
   darkMode: boolean;
   onToggleDarkMode: () => void;
   lockedToEmployee?: boolean;
@@ -76,6 +85,7 @@ export const TechnicianPortal: React.FC<TechnicianPortalProps> = ({
   onUpdateNotes,
   onCreateQuickTask,
   onSendAdminPing,
+  onReportGpsLocation,
   darkMode,
   onToggleDarkMode,
   lockedToEmployee = false,
@@ -98,8 +108,101 @@ export const TechnicianPortal: React.FC<TechnicianPortalProps> = ({
   // Live Attendance Clock State
   const [nowDate, setNowDate] = useState<Date>(() => new Date());
   const [isClockedIn, setIsClockedIn] = useState<boolean>(true);
-  const [shiftSeconds, setShiftSeconds] = useState<number>(2 * 3600 + 24 * 60 + 18); // 2h 24m in shift
+  const [shiftSeconds, setShiftSeconds] = useState<number>(2 * 3600 + 24 * 60 + 18);
   const [lastCheckTime, setLastCheckTime] = useState<string>('08:32 ص');
+
+  // Real Browser Geolocation (GPS) State
+  const [gpsStatus, setGpsStatus] = useState<'idle' | 'requesting' | 'active' | 'denied' | 'unsupported'>('idle');
+  const [gpsError, setGpsError] = useState<string>('');
+  const watchIdRef = useRef<number | null>(null);
+  const lastWatchLogAtRef = useRef<number>(0);
+
+  const startLiveGpsWatch = (techId: string) => {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) return;
+    if (watchIdRef.current !== null) {
+      navigator.geolocation.clearWatch(watchIdRef.current);
+    }
+    watchIdRef.current = navigator.geolocation.watchPosition(
+      (pos) => {
+        setGpsStatus('active');
+        setGpsError('');
+        const nowMs = Date.now();
+        // Throttle automatic watch updates to once every 20s to keep logs clean
+        if (nowMs - lastWatchLogAtRef.current >= 20000) {
+          lastWatchLogAtRef.current = nowMs;
+          onReportGpsLocation(
+            techId,
+            pos.coords.latitude,
+            pos.coords.longitude,
+            Math.round(pos.coords.accuracy),
+            'تحديث موقع تلقائي مباشر (GPS)'
+          );
+        }
+      },
+      () => {
+        // ignore intermittent background watch hiccups if initial fix succeeded
+      },
+      { enableHighAccuracy: true, maximumAge: 15000, timeout: 12000 }
+    );
+  };
+
+  const requestRealGpsLocation = (eventLabel = 'تحديث موقع الموظف يدوياً (GPS)') => {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      setGpsStatus('unsupported');
+      setGpsError('المتصفح الحالي لا يدعم خدمة تحديد الموقع GPS.');
+      return;
+    }
+
+    setGpsStatus('requesting');
+    setGpsError('');
+
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setGpsStatus('active');
+        setGpsError('');
+        lastWatchLogAtRef.current = Date.now();
+        onReportGpsLocation(
+          currentTech.id,
+          pos.coords.latitude,
+          pos.coords.longitude,
+          Math.round(pos.coords.accuracy),
+          eventLabel
+        );
+        startLiveGpsWatch(currentTech.id);
+      },
+      (err) => {
+        if (err.code === err.PERMISSION_DENIED) {
+          setGpsStatus('denied');
+          setGpsError('تم رفض إذن الموقع. من فضلك اسمح بالوصول للموقع (Location) من إعدادات المتصفح ليتمكن المدير من رؤية مكانك.');
+        } else {
+          setGpsStatus('denied');
+          setGpsError('تعذر التقاط إشارة GPS حالياً — تأكد من تفعيل الموقع في جهازك وحاول مرة أخرى.');
+        }
+      },
+      { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
+    );
+  };
+
+  // Auto-check geolocation permission on mount; if already granted, capture immediately
+  useEffect(() => {
+    if (typeof navigator !== 'undefined' && navigator.permissions?.query) {
+      navigator.permissions
+        .query({ name: 'geolocation' as PermissionName })
+        .then((res) => {
+          if (res.state === 'granted') {
+            requestRealGpsLocation('تسجيل الموقع التلقائي عند فتح الصفحة (GPS)');
+          }
+        })
+        .catch(() => {
+          // Permissions API not supported on some iOS Safari versions — prompt card remains visible
+        });
+    }
+    return () => {
+      if (watchIdRef.current !== null && typeof navigator !== 'undefined' && navigator.geolocation) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+      }
+    };
+  }, [currentTech.id]);
 
   // Quick Task Creator State
   const [quickTaskOpen, setQuickTaskOpen] = useState<boolean>(false);
@@ -175,6 +278,11 @@ export const TechnicianPortal: React.FC<TechnicianPortalProps> = ({
       nextState
         ? `سجّل حضور بالـ GPS الساعة ${timeStr}`
         : `سجّل انصراف بالـ GPS الساعة ${timeStr}`
+    );
+
+    // Also capture & record real GPS location on check-in / check-out!
+    requestRealGpsLocation(
+      nextState ? `تسجيل حضور بالموقع GPS (${timeStr})` : `تسجيل انصراف بالموقع GPS (${timeStr})`
     );
   };
 
@@ -350,6 +458,61 @@ export const TechnicianPortal: React.FC<TechnicianPortalProps> = ({
           <span>{isClockedIn ? 'شغّال' : 'متوقف'}</span>
         </div>
         <div className="emp-status-text">{liveActivityText}</div>
+      </div>
+
+      {/* REAL GPS LOCATION PERMISSION & LIVE TRACKER CARD */}
+      <div
+        className={`emp-gps-banner emp-fade ${
+          gpsStatus === 'active' ? 'active' : gpsStatus === 'denied' ? 'warn' : ''
+        }`}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: '1 1 200px' }}>
+          <div className="emp-gps-icon-box">
+            {gpsStatus === 'active' ? (
+              <LocateFixed size={18} />
+            ) : (
+              <Crosshair size={18} className={gpsStatus === 'requesting' ? 'anim-gear' : ''} />
+            )}
+          </div>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: '0.82rem', fontWeight: 900 }}>
+              {gpsStatus === 'active'
+                ? 'موقعك الحقيقي (GPS) مُفعَّل ويُحدَّث للمدير'
+                : gpsStatus === 'requesting'
+                ? 'جاري طلب إذن الموقع وتحديد إحداثياتك...'
+                : 'مطلوب السماح بالموقع (GPS) لتسجيل مكانك للمدير'}
+            </div>
+            <div style={{ fontSize: '0.73rem', opacity: 0.85, marginTop: 2 }}>
+              {gpsStatus === 'active' ? (
+                <span dir="ltr" style={{ fontWeight: 700 }}>
+                  {currentTech.currentCoords.lat.toFixed(5)}, {currentTech.currentCoords.lng.toFixed(5)}
+                  {currentTech.locationAccuracy ? ` (±${currentTech.locationAccuracy}م)` : ''}
+                  {currentTech.lastLocationUpdatedAt ? ` • ${currentTech.lastLocationUpdatedAt}` : ''}
+                </span>
+              ) : gpsError ? (
+                gpsError
+              ) : (
+                'اضغط «السماح وتحديد موقعي» ليتم تسجيل إحداثياتك تلقائياً في لوحة المدير'
+              )}
+            </div>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          className={`pill-btn ${gpsStatus === 'active' ? '' : 'coral'}`}
+          style={{ height: 36, fontSize: '0.76rem', flexShrink: 0 }}
+          onClick={() =>
+            requestRealGpsLocation(
+              gpsStatus === 'active'
+                ? 'تحديث فوري لموقع الفني (GPS)'
+                : 'تفعيل مشاركة الموقع الحقيقي (GPS)'
+            )
+          }
+        >
+          <LocateFixed size={14} />
+          <span>{gpsStatus === 'active' ? 'تحديث موقعي' : 'السماح وتحديد موقعي'}</span>
+        </button>
       </div>
 
       {/* MAIN CONTENT CONTAINER */}

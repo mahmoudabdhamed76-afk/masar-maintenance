@@ -16,12 +16,16 @@ import {
   Users,
   Wrench,
   Activity,
+  ExternalLink,
   KeyRound,
+  LocateFixed,
+  Radio,
   Settings2,
   UserPlus,
 } from 'lucide-react';
 import { MISSION_STAGES } from '../data/initialData';
 import {
+  LocationLogEntry,
   MaintenanceMission,
   ManagerSection,
   MissionStageIndex,
@@ -35,6 +39,7 @@ interface ManagerDashboardProps {
   onChangeSection: (s: ManagerSection) => void;
   missions: MaintenanceMission[];
   technicians: Technician[];
+  locationLogs: LocationLogEntry[];
   selectedMissionId: string;
   onSelectMission: (id: string) => void;
   onOpenAssignModal: () => void;
@@ -44,6 +49,7 @@ interface ManagerDashboardProps {
   onAdvanceStage: (missionId: string) => void;
   onSetStage: (missionId: string, stage: MissionStageIndex) => void;
   onInspectAsTechnician: (techId: string, missionId: string) => void;
+  onOpenClientTracking: (missionId: string) => void;
 }
 
 export const ManagerDashboard: React.FC<ManagerDashboardProps> = ({
@@ -51,6 +57,7 @@ export const ManagerDashboard: React.FC<ManagerDashboardProps> = ({
   onChangeSection,
   missions,
   technicians,
+  locationLogs,
   selectedMissionId,
   onSelectMission,
   onOpenAssignModal,
@@ -60,6 +67,7 @@ export const ManagerDashboard: React.FC<ManagerDashboardProps> = ({
   onAdvanceStage,
   onSetStage,
   onInspectAsTechnician,
+  onOpenClientTracking,
 }) => {
   const dashRef = useRef<HTMLDivElement>(null);
   const [stageFilter, setStageFilter] = useState<'all' | 'urgent' | 'en_route' | 'working' | 'resolved'>('all');
@@ -337,17 +345,28 @@ export const ManagerDashboard: React.FC<ManagerDashboardProps> = ({
                     <span style={{ fontSize: '0.9rem', fontWeight: 800, color: 'var(--text-primary)' }}>
                       متابعة البث المباشر لبار الفني ({selectedTech?.name})
                     </span>
-                    <button
-                      type="button"
-                      className="pill-btn"
-                      style={{ height: 34, fontSize: '0.78rem' }}
-                      onClick={() =>
-                        onInspectAsTechnician(selectedMission.technicianId, selectedMission.id)
-                      }
-                    >
-                      فتح في صفحة الفني
-                      <ArrowUpLeft size={14} />
-                    </button>
+                    <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
+                      <button
+                        type="button"
+                        className="pill-btn"
+                        style={{ height: 34, fontSize: '0.77rem' }}
+                        onClick={() => onOpenClientTracking(selectedMission.id)}
+                      >
+                        <Radio size={14} color="var(--accent-coral)" />
+                        صفحة المريض / المتابعة
+                      </button>
+                      <button
+                        type="button"
+                        className="pill-btn"
+                        style={{ height: 34, fontSize: '0.77rem' }}
+                        onClick={() =>
+                          onInspectAsTechnician(selectedMission.technicianId, selectedMission.id)
+                        }
+                      >
+                        فتح في صفحة الفني
+                        <ArrowUpLeft size={14} />
+                      </button>
+                    </div>
                   </div>
 
                   <MissionProgressTracker
@@ -389,6 +408,78 @@ export const ManagerDashboard: React.FC<ManagerDashboardProps> = ({
                   onSelectMission={onSelectMission}
                   height={310}
                 />
+
+                {/* Compact Live Recorded GPS Locations Strip */}
+                {locationLogs.length > 0 && (
+                  <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px dashed var(--border-strong)' }}>
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        marginBottom: 8,
+                      }}
+                    >
+                      <span style={{ fontSize: '0.82rem', fontWeight: 900, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                        <LocateFixed size={15} color="var(--accent-coral)" />
+                        آخر مواقع الموظفين المسجّلة عبر GPS
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => onChangeSection('map')}
+                        style={{
+                          border: 'none',
+                          background: 'transparent',
+                          color: 'var(--accent-coral)',
+                          fontSize: '0.76rem',
+                          fontWeight: 800,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        عرض السجل الكامل ({locationLogs.length}) ←
+                      </button>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+                      {locationLogs.slice(0, 3).map((log) => (
+                        <div
+                          key={log.id}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: 8,
+                            padding: '8px 11px',
+                            borderRadius: 12,
+                            background: 'var(--bg-card-subtle)',
+                            fontSize: '0.76rem',
+                            flexWrap: 'wrap',
+                          }}
+                        >
+                          <div>
+                            <strong>{log.technicianName}</strong> — {log.event}{' '}
+                            <span style={{ color: 'var(--text-muted)' }}>({log.timestamp})</span>
+                          </div>
+                          <a
+                            href={`https://www.google.com/maps/search/?api=1&query=${log.lat},${log.lng}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            style={{
+                              color: 'var(--accent-coral)',
+                              fontWeight: 800,
+                              textDecoration: 'none',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 4,
+                            }}
+                          >
+                            <ExternalLink size={12} />
+                            Google Maps
+                          </a>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Live Missions Queue Table/Cards */}
@@ -794,28 +885,91 @@ export const ManagerDashboard: React.FC<ManagerDashboardProps> = ({
         </div>
       )}
 
-      {/* FULL MAP SECTION */}
+      {/* FULL MAP SECTION + RECORDED EMPLOYEE GPS LOGS */}
       {section === 'map' && (
-        <div className="card gsap-stagger">
-          <div className="card-header">
-            <div>
-              <h3 className="card-title">خريطة التتبع الميداني الشاملة</h3>
-              <p className="card-subtitle">
-                تتبع مباشر لإحداثيات الفنيين ومواقع مراكز الصيانة ومسارات الحركة
-              </p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div className="card gsap-stagger">
+            <div className="card-header">
+              <div>
+                <h3 className="card-title">خريطة التتبع الميداني الشاملة</h3>
+                <p className="card-subtitle">
+                  تتبع مباشر لإحداثيات الفنيين ومواقع مراكز الصيانة ومسارات الحركة
+                </p>
+              </div>
+              <button type="button" className="pill-btn coral" onClick={onOpenAssignModal}>
+                <Plus size={16} />
+                إرسال فني لموقع جديد
+              </button>
             </div>
-            <button type="button" className="pill-btn coral" onClick={onOpenAssignModal}>
-              <Plus size={16} />
-              إرسال فني لموقع جديد
-            </button>
+            <LiveFieldMap
+              missions={missions}
+              technicians={technicians}
+              selectedMissionId={selectedMissionId}
+              onSelectMission={onSelectMission}
+              height={420}
+            />
           </div>
-          <LiveFieldMap
-            missions={missions}
-            technicians={technicians}
-            selectedMissionId={selectedMissionId}
-            onSelectMission={onSelectMission}
-            height={440}
-          />
+
+          {/* Recorded Employee GPS Location History Log */}
+          <div className="card gsap-stagger">
+            <div className="card-header">
+              <div>
+                <h3 className="card-title">
+                  <LocateFixed size={18} color="var(--accent-coral)" />
+                  سجل مواقع الموظفين المُسجَّلة عبر GPS ({locationLogs.length})
+                </h3>
+                <p className="card-subtitle">
+                  كل تحديث موقع أو تسجيل حضور يرسله الموظف من جهازه يُحفظ هنا بالإحداثيات والتوقيت
+                </p>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+              {locationLogs.map((log) => (
+                <div
+                  key={log.id}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 10,
+                    padding: '11px 14px',
+                    borderRadius: 14,
+                    background: 'var(--bg-elevated)',
+                    border: '1px solid var(--border-soft)',
+                    flexWrap: 'wrap',
+                  }}
+                >
+                  <div style={{ flex: '1 1 240px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                      <strong style={{ fontSize: '0.88rem' }}>{log.technicianName}</strong>
+                      <span className="badge resolved">{log.timestamp}</span>
+                      {log.accuracyMeters && (
+                        <span className="code-pill">دقة ±{log.accuracyMeters}م</span>
+                      )}
+                    </div>
+                    <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 3 }}>
+                      {log.event}
+                    </div>
+                    <div dir="ltr" style={{ fontSize: '0.74rem', fontWeight: 700, color: 'var(--text-muted)', marginTop: 2, textAlign: 'right' }}>
+                      GPS: {log.lat.toFixed(5)}, {log.lng.toFixed(5)}
+                    </div>
+                  </div>
+
+                  <a
+                    href={`https://www.google.com/maps/search/?api=1&query=${log.lat},${log.lng}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="pill-btn primary"
+                    style={{ height: 34, fontSize: '0.76rem', textDecoration: 'none' }}
+                  >
+                    <ExternalLink size={13} />
+                    مكانه على الخريطة
+                  </a>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       )}
 
@@ -943,8 +1097,46 @@ export const ManagerDashboard: React.FC<ManagerDashboardProps> = ({
                     ))}
                   </div>
 
-                  <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: 12 }}>
+                  <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: 8 }}>
                     🚐 {tech.vehicle}
+                  </div>
+
+                  {/* Live Recorded GPS Location Strip on Technician Card */}
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: 8,
+                      padding: '8px 11px',
+                      borderRadius: 12,
+                      background: tech.gpsEnabled ? 'var(--pastel-mint-bg)' : 'var(--bg-card-subtle)',
+                      border: `1px solid ${tech.gpsEnabled ? 'var(--pastel-mint-border)' : 'var(--border-soft)'}`,
+                      marginBottom: 11,
+                      fontSize: '0.73rem',
+                      fontWeight: 700,
+                    }}
+                  >
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ color: tech.gpsEnabled ? 'var(--pastel-mint-text)' : 'var(--text-muted)' }}>
+                        {tech.gpsEnabled
+                          ? `● GPS حي (${tech.lastLocationUpdatedAt || 'الآن'})`
+                          : 'آخر موقع مسجل:'}
+                      </div>
+                      <div dir="ltr" style={{ fontFamily: 'monospace', fontSize: '0.72rem', textAlign: 'right' }}>
+                        {tech.currentCoords.lat.toFixed(4)}, {tech.currentCoords.lng.toFixed(4)}
+                      </div>
+                    </div>
+                    <a
+                      href={`https://www.google.com/maps/search/?api=1&query=${tech.currentCoords.lat},${tech.currentCoords.lng}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="pill-btn"
+                      style={{ height: 30, padding: '0 9px', fontSize: '0.72rem', textDecoration: 'none' }}
+                    >
+                      <ExternalLink size={12} />
+                      موقعه
+                    </a>
                   </div>
 
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>

@@ -52,6 +52,20 @@ export interface Technician {
   username: string;
   password: string;
   currentCoords: GeoPoint;
+  gpsEnabled?: boolean;
+  lastLocationUpdatedAt?: string;
+  locationAccuracy?: number;
+}
+
+export interface LocationLogEntry {
+  id: string;
+  technicianId: string;
+  technicianName: string;
+  lat: number;
+  lng: number;
+  accuracyMeters?: number;
+  event: string;
+  timestamp: string;
 }
 
 export interface ChecklistItem {
@@ -97,6 +111,6 @@ export interface AppNotification {
   unread: boolean;
 }
 
-export type ActivePortal = 'manager' | 'technician';
+export type ActivePortal = 'manager' | 'technician' | 'client';
 export type ManagerSection = 'overview' | 'missions' | 'map' | 'technicians';
 export type TechSection = 'home' | 'missions' | 'monthly' | 'admin';

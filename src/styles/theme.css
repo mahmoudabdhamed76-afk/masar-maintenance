@@ -2508,3 +2508,48 @@ body {
     width: 100%;
   }
 }
+
+/* ================= REAL GPS PERMISSION & TRACKER BANNER ================= */
+.emp-gps-banner {
+  position: relative;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 11px 14px;
+  margin-bottom: 14px;
+  border-radius: 16px;
+  background: var(--pastel-amber-bg);
+  border: 1px solid var(--pastel-amber-border);
+  color: var(--pastel-amber-text);
+  box-shadow: var(--shadow-xs);
+}
+
+.emp-gps-banner.active {
+  background: var(--pastel-mint-bg);
+  border-color: var(--pastel-mint-border);
+  color: var(--pastel-mint-text);
+}
+
+.emp-gps-banner.warn {
+  background: var(--pastel-peach-bg);
+  border-color: var(--pastel-peach-border);
+  color: var(--pastel-peach-text);
+}
+
+.emp-gps-icon-box {
+  width: 36px;
+  height: 36px;
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+[data-theme='dark'] .emp-gps-icon-box {
+  background: rgba(255, 255, 255, 0.12);
+}
