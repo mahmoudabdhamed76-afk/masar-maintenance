@@ -1,7 +1,7 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import gsap from 'gsap';
 import {
-  CalendarClock,
+  Calendar,
   CalendarDays,
   CheckCircle2,
   Circle,
@@ -9,16 +9,24 @@ import {
   Clock,
   ExternalLink,
   FileText,
+  Home,
+  LogIn,
   LogOut,
   MapPin,
+  MessageCircle,
+  Moon,
+  Navigation,
   Package,
   Phone,
+  Plus,
+  Send,
+  Shield,
   ShieldCheck,
   Star,
-  UserCheck,
+  Sun,
   Wrench,
 } from 'lucide-react';
-import { MISSION_STAGES } from '../data/initialData';
+import { MISSION_STAGES, SITE_PRESETS } from '../data/initialData';
 import {
   MaintenanceMission,
   MissionStageIndex,
@@ -41,9 +49,17 @@ interface TechnicianPortalProps {
   onSetStage: (missionId: string, stage: MissionStageIndex) => void;
   onToggleChecklist: (missionId: string, itemId: string) => void;
   onUpdateNotes: (missionId: string, notes: string) => void;
+  onCreateQuickTask: (mission: MaintenanceMission) => void;
+  onSendAdminPing: (techName: string, message: string) => void;
+  darkMode: boolean;
+  onToggleDarkMode: () => void;
   lockedToEmployee?: boolean;
   onLogoutEmployee?: () => void;
+  onSwitchToManager?: () => void;
 }
+
+const CLOCK_R = 88;
+const CLOCK_CIRC = 2 * Math.PI * CLOCK_R;
 
 export const TechnicianPortal: React.FC<TechnicianPortalProps> = ({
   section,
@@ -58,10 +74,17 @@ export const TechnicianPortal: React.FC<TechnicianPortalProps> = ({
   onSetStage,
   onToggleChecklist,
   onUpdateNotes,
+  onCreateQuickTask,
+  onSendAdminPing,
+  darkMode,
+  onToggleDarkMode,
   lockedToEmployee = false,
   onLogoutEmployee,
+  onSwitchToManager,
 }) => {
   const portalRef = useRef<HTMLDivElement>(null);
+  const clockRingRef = useRef<SVGCircleElement>(null);
+  const checkBtnRef = useRef<HTMLButtonElement>(null);
 
   const currentTech =
     technicians.find((t) => t.id === activeTechId) || technicians[0];
@@ -72,595 +95,913 @@ export const TechnicianPortal: React.FC<TechnicianPortalProps> = ({
     myMissions[0] ||
     null;
 
+  // Live Attendance Clock State
+  const [nowDate, setNowDate] = useState<Date>(() => new Date());
+  const [isClockedIn, setIsClockedIn] = useState<boolean>(true);
+  const [shiftSeconds, setShiftSeconds] = useState<number>(2 * 3600 + 24 * 60 + 18); // 2h 24m in shift
+  const [lastCheckTime, setLastCheckTime] = useState<string>('08:32 ص');
+
+  // Quick Task Creator State
+  const [quickTaskOpen, setQuickTaskOpen] = useState<boolean>(false);
+  const [quickTitle, setQuickTitle] = useState<string>('');
+  const [quickSiteId, setQuickSiteId] = useState<string>(SITE_PRESETS[0].id);
+
+  // Admin Chat Message State
+  const [adminMsg, setAdminMsg] = useState<string>('');
+  const [sentMessages, setSentMessages] = useState<Array<{ id: string; text: string; time: string; from: 'tech' | 'admin' }>>([
+    {
+      id: 'm1',
+      text: 'مرحباً! تم تفعيل التتبع المباشر لوردية اليوم. يرجى تحديث مراحل الرحلة أولاً بأول عند الوصول لكل مركز.',
+      time: '08:30 ص',
+      from: 'admin',
+    },
+  ]);
+
+  // Live Real-Time Clock Tick
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      setNowDate(new Date());
+      if (isClockedIn) {
+        setShiftSeconds((s) => s + 1);
+      }
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [isClockedIn]);
+
+  // GSAP Entrance & Clock Ring Pulse Animation
   useEffect(() => {
     const ctx = gsap.context(() => {
       gsap.fromTo(
-        '.tech-stagger',
-        { y: 16, opacity: 0 },
-        { y: 0, opacity: 1, duration: 0.5, stagger: 0.06, ease: 'power3.out', clearProps: 'transform' }
+        '.emp-fade',
+        { y: 14, opacity: 0 },
+        { y: 0, opacity: 1, duration: 0.48, stagger: 0.055, ease: 'power3.out', clearProps: 'transform' }
       );
     }, portalRef);
     return () => ctx.revert();
   }, [section, activeTechId]);
+
+  useEffect(() => {
+    if (!clockRingRef.current) return;
+    const progressRatio = isClockedIn ? Math.min(0.95, 0.25 + (shiftSeconds % 3600) / 4800) : 0.08;
+    gsap.to(clockRingRef.current, {
+      strokeDashoffset: CLOCK_CIRC * (1 - progressRatio),
+      duration: 0.9,
+      ease: 'power3.out',
+    });
+  }, [isClockedIn, Math.floor(shiftSeconds / 30)]);
+
+  const handleToggleAttendance = () => {
+    const timeStr = new Date().toLocaleTimeString('ar-EG', {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+    setLastCheckTime(timeStr);
+    const nextState = !isClockedIn;
+    setIsClockedIn(nextState);
+    if (nextState) {
+      setShiftSeconds(0);
+    }
+
+    if (checkBtnRef.current) {
+      gsap.fromTo(
+        checkBtnRef.current,
+        { scale: 0.95 },
+        { scale: 1, duration: 0.4, ease: 'back.out(2)' }
+      );
+    }
+
+    onSendAdminPing(
+      currentTech.name,
+      nextState
+        ? `سجّل حضور بالـ GPS الساعة ${timeStr}`
+        : `سجّل انصراف بالـ GPS الساعة ${timeStr}`
+    );
+  };
+
+  const handleAddQuickTask = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!quickTitle.trim()) return;
+    const site = SITE_PRESETS.find((s) => s.id === quickSiteId) || SITE_PRESETS[0];
+    const nowTime = new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' });
+    const newMission: MaintenanceMission = {
+      id: `msn-q-${Date.now()}`,
+      code: `MT-${Math.floor(2100 + Math.random() * 800)}`,
+      title: quickTitle.trim(),
+      category: currentTech.specialty,
+      description: 'مهمة ميدانية مسجلة مباشرة من هاتف الفني.',
+      priority: 'high',
+      technicianId: currentTech.id,
+      site,
+      scheduledDate: 'اليوم',
+      scheduledTime: nowTime,
+      estimatedDuration: '40 دقيقة',
+      distanceKm: 3.4,
+      etaMinutes: 11,
+      stage: 1,
+      stageLogs: [
+        { stage: 0, timestamp: nowTime, note: 'تم تسجيل المهمة من تطبيق الفني' },
+        { stage: 1, timestamp: nowTime, note: 'جاهز للانطلاق للموقع' },
+      ],
+      checklist: [
+        { id: 'qc1', label: 'فحص أولي وتوثيق العطل بالموقع', done: false },
+        { id: 'qc2', label: 'تنفيذ الصيانة واختبار التشغيل', done: false },
+      ],
+      resolutionNotes: '',
+      createdAt: nowTime,
+    };
+    onCreateQuickTask(newMission);
+    setQuickTitle('');
+    setQuickTaskOpen(false);
+  };
+
+  const handleSendMessage = (textToSend?: string) => {
+    const content = (textToSend ?? adminMsg).trim();
+    if (!content) return;
+    const t = new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' });
+    setSentMessages((prev) => [
+      ...prev,
+      { id: `msg-${Date.now()}`, text: content, time: t, from: 'tech' },
+    ]);
+    onSendAdminPing(currentTech.name, content);
+    if (!textToSend) setAdminMsg('');
+  };
+
+  // Format live time in Arabic style like "2:32 ص"
+  const hours24 = nowDate.getHours();
+  const hours12 = hours24 % 12 || 12;
+  const minutesStr = String(nowDate.getMinutes()).padStart(2, '0');
+  const ampm = hours24 >= 12 ? 'م' : 'ص';
+  const greeting = hours24 < 12 ? 'صباح الخير' : 'مساء الخير';
+
+  const shiftH = Math.floor(shiftSeconds / 3600);
+  const shiftM = Math.floor((shiftSeconds % 3600) / 60);
+
+  const liveActivityText = !isClockedIn
+    ? 'خارج الوردية — سجّل حضورك لتفعيل التتبع'
+    : activeMission
+    ? activeMission.stage === 5
+      ? `تم إنهاء زيارة ${activeMission.site.district} بنجاح`
+      : activeMission.stage >= 3
+      ? `داخل ${activeMission.site.name}`
+      : `في الطريق لـ ${activeMission.site.name}`
+    : 'متاح ومستعد لاستلام بلاغ جديد';
+
+  const quickVisitButtonLabel = () => {
+    if (!activeMission) return 'جاهز — بانتظار إسناد زيارة من الإدارة';
+    if (activeMission.stage === 0) return `قبول البلاغ والاستعداد لـ ${activeMission.site.district}`;
+    if (activeMission.stage === 1) return `بدء التحرك للمركز — ${activeMission.site.district}`;
+    if (activeMission.stage === 2) return `وصلت عند المركز — ابدأ زيارة`;
+    if (activeMission.stage === 3) return `بدء الصيانة والإصلاح بالموقع`;
+    if (activeMission.stage === 4) return `إنهاء الزيارة وتأكيد حل المشكلة`;
+    return `تم إنجاز الزيارة بنجاح ✓`;
+  };
 
   const checklistDoneCount = activeMission
     ? activeMission.checklist.filter((c) => c.done).length
     : 0;
 
   return (
-    <div ref={portalRef} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      {/* Technician Sub-nav & Account Selector */}
-      <div className="subnav-strip">
-        <div className="subnav-tabs">
-          <button
-            type="button"
-            className={`subnav-tab ${section === 'active' ? 'active' : ''}`}
-            onClick={() => onChangeSection('active')}
+    <div ref={portalRef} className="emp-shell">
+      {/* Subtle Top Warm Glow */}
+      <div className="emp-top-glow" aria-hidden="true" />
+
+      {/* NATIVE MOBILE-APP TOP HEADER */}
+      <header className="emp-header">
+        <div className="emp-header-identity">
+          <div
+            className="emp-brand-badge"
+            style={{ background: currentTech.avatarColor }}
           >
-            المهمة النشطة وبار التتبع
-          </button>
-          <button
-            type="button"
-            className={`subnav-tab ${section === 'schedule' ? 'active' : ''}`}
-            onClick={() => onChangeSection('schedule')}
-          >
-            مواعيدي اليوم ({myMissions.length})
-          </button>
-          <button
-            type="button"
-            className={`subnav-tab ${section === 'map' ? 'active' : ''}`}
-            onClick={() => onChangeSection('map')}
-          >
-            خريطة اللوكيشن والمسار
-          </button>
+            {currentTech.avatarInitials}
+          </div>
+          <div>
+            <div className="emp-greeting">{greeting}</div>
+            <div className="emp-username-title">{currentTech.name}</div>
+          </div>
         </div>
 
-        {/* Switch Technician Selector (hidden when logged in as a standalone employee) */}
-        {lockedToEmployee ? (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: '0.78rem', fontWeight: 800, color: 'var(--text-muted)' }} dir="ltr">
-              @{currentTech.username}
-            </span>
-            {onLogoutEmployee && (
+        <div className="emp-header-actions">
+          <button
+            type="button"
+            className="emp-icon-btn"
+            onClick={onToggleDarkMode}
+            title="الوضع الليلي"
+            aria-label="تبديل الوضع الليلي"
+          >
+            {darkMode ? <Sun size={18} /> : <Moon size={18} />}
+          </button>
+
+          {lockedToEmployee && onLogoutEmployee ? (
+            <button
+              type="button"
+              className="emp-icon-btn danger"
+              onClick={onLogoutEmployee}
+              title="تسجيل خروج"
+              aria-label="تسجيل خروج"
+            >
+              <LogOut size={18} />
+            </button>
+          ) : (
+            onSwitchToManager && (
               <button
                 type="button"
-                className="pill-btn"
-                style={{ height: 34, fontSize: '0.77rem' }}
-                onClick={onLogoutEmployee}
+                className="emp-icon-btn"
+                onClick={onSwitchToManager}
+                title="العودة لصفحة المدير"
+                aria-label="العودة لصفحة المدير"
               >
-                <LogOut size={14} />
-                تسجيل خروج
+                <Shield size={18} />
               </button>
-            )}
-          </div>
-        ) : (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-muted)' }}>
-              حساب الفني:
-            </span>
-            <select
-              className="form-select"
-              style={{ width: 'auto', padding: '6px 12px', fontSize: '0.82rem' }}
-              value={currentTech.id}
-              onChange={(e) => {
-                const nextId = e.target.value;
-                onChangeTechId(nextId);
-                const firstForTech = missions.find((m) => m.technicianId === nextId);
-                if (firstForTech) onSelectMission(firstForTech.id);
-              }}
-            >
-              {technicians.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name} — {t.specialty}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
-      </div>
-
-      {/* Technician Welcome & Shift Banner */}
-      <div
-        className="card tech-stagger"
-        style={{
-          background:
-            'linear-gradient(125deg, var(--bg-card) 0%, var(--pastel-peach-bg) 160%)',
-          padding: '18px 22px',
-        }}
-      >
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: 14,
-            flexWrap: 'wrap',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-            <div
-              className="user-avatar"
-              style={{
-                width: 54,
-                height: 54,
-                borderRadius: 17,
-                background: currentTech.avatarColor,
-                fontSize: '1.1rem',
-                boxShadow: '0 8px 18px rgba(0,0,0,0.16)',
-              }}
-            >
-              {currentTech.avatarInitials}
-            </div>
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                <h1 style={{ margin: 0, fontSize: '1.3rem', fontWeight: 900 }}>
-                  أهلاً، {currentTech.name}
-                </h1>
-                <span className="badge resolved">
-                  <span className="live-dot" style={{ width: 7, height: 7 }} />
-                  متصل بنظام GPS
-                </span>
-              </div>
-              <div
-                style={{
-                  fontSize: '0.8rem',
-                  color: 'var(--text-secondary)',
-                  marginTop: 4,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 12,
-                  flexWrap: 'wrap',
-                }}
-              >
-                <span>{currentTech.role}</span>
-                <span>•</span>
-                <span>الوردية: {currentTech.shiftStart} إلى {currentTech.shiftEnd}</span>
-                <span>•</span>
-                <span>🚐 {currentTech.vehicle}</span>
-              </div>
-              {currentTech.workDays?.length > 0 && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap', marginTop: 7 }}>
-                  <CalendarDays size={13} color="var(--accent-coral)" />
-                  {currentTech.workDays.map((day) => (
-                    <span
-                      key={day}
-                      style={{
-                        fontSize: '0.7rem',
-                        fontWeight: 700,
-                        padding: '2px 8px',
-                        borderRadius: 8,
-                        background: 'var(--bg-elevated)',
-                        border: '1px solid var(--border-soft)',
-                        color: 'var(--text-secondary)',
-                      }}
-                    >
-                      {day}
-                    </span>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-            <div
-              style={{
-                padding: '9px 14px',
-                borderRadius: 14,
-                background: 'var(--bg-elevated)',
-                border: '1px solid var(--border-soft)',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 7,
-                fontSize: '0.82rem',
-                fontWeight: 800,
-              }}
-            >
-              <CalendarClock size={16} color="var(--accent-coral)" />
-              {myMissions.length} مهام اليوم
-            </div>
-            <div
-              style={{
-                padding: '9px 14px',
-                borderRadius: 14,
-                background: 'var(--bg-elevated)',
-                border: '1px solid var(--border-soft)',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 7,
-                fontSize: '0.82rem',
-                fontWeight: 800,
-              }}
-            >
-              <Star size={16} color="#D97706" />
-              تقييم {currentTech.rating}
-            </div>
-          </div>
+            )
+          )}
         </div>
-      </div>
+      </header>
 
-      {/* EMPTY STATE IF NEW EMPLOYEE HAS NO ASSIGNED MISSIONS YET */}
-      {section === 'active' && !activeMission && (
-        <div className="card tech-stagger" style={{ textAlign: 'center', padding: '42px 24px' }}>
-          <div
-            className="brand-logo-box"
-            style={{ margin: '0 auto 14px', width: 60, height: 60 }}
+      {/* Preview Account Switcher Bar (only visible to Manager when previewing) */}
+      {!lockedToEmployee && (
+        <div className="emp-preview-switcher">
+          <span style={{ fontSize: '0.76rem', fontWeight: 800, color: 'var(--text-muted)' }}>
+            معاينة حساب:
+          </span>
+          <select
+            className="emp-tech-select"
+            value={currentTech.id}
+            onChange={(e) => {
+              const nextId = e.target.value;
+              onChangeTechId(nextId);
+              const firstForTech = missions.find((m) => m.technicianId === nextId);
+              if (firstForTech) onSelectMission(firstForTech.id);
+            }}
+            aria-label="تبديل الموظف"
           >
-            <Wrench size={28} />
-          </div>
-          <h3 style={{ margin: '0 0 6px', fontSize: '1.15rem', fontWeight: 900 }}>
-            حسابك نشط ومستعد لاستلام البلاغات!
-          </h3>
-          <p style={{ margin: '0 auto', maxWidth: 420, fontSize: '0.84rem', color: 'var(--text-secondary)' }}>
-            لا توجد مهام صيانة مُسندة حالياً لحساب {currentTech.name}. بمجرد قيام المدير بتعيين مهمة جديدة لك سيظهر بار الرحلة المتحرك وتفاصيل اللوكيشن هنا فوراً.
-          </p>
+            {technicians.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name} — {t.specialty}
+              </option>
+            ))}
+          </select>
         </div>
       )}
 
-      {/* ACTIVE MISSION & GSAP PROGRESS TRACKER */}
-      {section === 'active' && activeMission && (
-        <>
-          <div className="tech-stagger">
-            <MissionProgressTracker
-              mission={activeMission}
-              technician={currentTech}
-              onAdvanceStage={onAdvanceStage}
-              onSetStage={onSetStage}
-            />
-          </div>
+      {/* LIVE STATUS STRIP (Exact inspiration from screenshot: ● شغّال | في الطريق لـ ...) */}
+      <div className="emp-status-strip emp-fade">
+        <div className={`emp-status-tag ${isClockedIn ? 'online' : 'offline'}`}>
+          <span className="emp-status-dot" />
+          <span>{isClockedIn ? 'شغّال' : 'متوقف'}</span>
+        </div>
+        <div className="emp-status-text">{liveActivityText}</div>
+      </div>
 
-          <div className="tech-split">
-            {/* Right Column: Site Details + Checklist + Report */}
-            <div className="dashboard-stack">
-              {/* Site & Problem Details Card */}
-              <div className="card tech-stagger">
-                <div className="card-header">
-                  <div>
-                    <h3 className="card-title">
-                      <MapPin size={18} color="var(--accent-coral)" />
-                      تفاصيل اللوكيشن والبلاغ
-                    </h3>
-                    <p className="card-subtitle">بيانات المركز ومسؤول الاستلام والقطع المطلوبة</p>
-                  </div>
-                  <a
-                    href={`https://www.google.com/maps/search/?api=1&query=${activeMission.site.coords.lat},${activeMission.site.coords.lng}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="pill-btn primary"
-                    style={{ height: 36, fontSize: '0.78rem', textDecoration: 'none' }}
-                  >
-                    <ExternalLink size={14} />
-                    الاتجاهات بالخريطة
-                  </a>
-                </div>
-
-                <div
-                  style={{
-                    padding: 14,
-                    borderRadius: 15,
-                    background: 'var(--bg-card-subtle)',
-                    border: '1px solid var(--border-soft)',
-                    marginBottom: 14,
-                  }}
-                >
-                  <div style={{ fontSize: '0.95rem', fontWeight: 900, marginBottom: 4 }}>
-                    {activeMission.site.name}
-                  </div>
-                  <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-                    📍 {activeMission.site.address} — ({activeMission.site.district})
-                  </div>
-                  <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 14,
-                      flexWrap: 'wrap',
-                      marginTop: 10,
-                      fontSize: '0.79rem',
-                      fontWeight: 700,
-                    }}
-                  >
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                      <UserCheck size={14} color="var(--accent-coral)" />
-                      مسؤول المركز: {activeMission.site.contactName}
-                    </span>
-                    <a
-                      href={`tel:${activeMission.site.contactPhone}`}
+      {/* MAIN CONTENT CONTAINER */}
+      <div className="emp-content">
+        {/* ================= TAB 1: HOME (الرئيسية) ================= */}
+        {section === 'home' && (
+          <div className="emp-home-grid">
+            {/* Column 1: Hero Clock Ring + Check-In/Out + Quick Visit CTA */}
+            <div className="emp-col-stack">
+              {/* HERO LIVE ATTENDANCE RING CARD */}
+              <div className="emp-clock-card emp-fade">
+                <div className="emp-clock-ring-wrap">
+                  <svg viewBox="0 0 210 210" className="emp-clock-svg">
+                    <defs>
+                      <linearGradient id="empClockGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stopColor={isClockedIn ? '#E5485B' : '#94A3B8'} />
+                        <stop offset="55%" stopColor={isClockedIn ? '#E56A45' : '#64748B'} />
+                        <stop offset="100%" stopColor={isClockedIn ? '#F0984B' : '#94A3B8'} />
+                      </linearGradient>
+                    </defs>
+                    {/* Soft outer ring shadow */}
+                    <circle
+                      cx="105"
+                      cy="105"
+                      r={CLOCK_R}
+                      fill="none"
+                      stroke="var(--border-soft)"
+                      strokeWidth="12"
+                    />
+                    {/* Animated live ring */}
+                    <circle
+                      ref={clockRingRef}
+                      cx="105"
+                      cy="105"
+                      r={CLOCK_R}
+                      fill="none"
+                      stroke="url(#empClockGrad)"
+                      strokeWidth="12"
+                      strokeLinecap="round"
+                      strokeDasharray={CLOCK_CIRC}
+                      strokeDashoffset={CLOCK_CIRC * 0.25}
+                      transform="rotate(-90 105 105)"
                       style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: 5,
-                        color: 'var(--accent-coral)',
-                        textDecoration: 'none',
+                        filter: isClockedIn
+                          ? 'drop-shadow(0 6px 14px rgba(229, 72, 91, 0.28))'
+                          : 'none',
                       }}
-                    >
-                      <Phone size={14} />
-                      {activeMission.site.contactPhone}
-                    </a>
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                      <Clock size={14} />
-                      المدة التقديرية: {activeMission.estimatedDuration}
-                    </span>
+                    />
+                  </svg>
+
+                  <div className="emp-clock-center">
+                    <div className="emp-clock-time">
+                      <span className="emp-clock-digits">
+                        {hours12}:{minutesStr}
+                      </span>
+                      <span className="emp-clock-ampm">{ampm}</span>
+                    </div>
+                    <div className="emp-clock-sub">
+                      {isClockedIn
+                        ? `في الشغل من ${shiftH} س ${shiftM} د`
+                        : `آخر تسجيل: ${lastCheckTime}`}
+                    </div>
                   </div>
                 </div>
 
-                <div style={{ marginBottom: 12 }}>
-                  <div style={{ fontSize: '0.82rem', fontWeight: 800, marginBottom: 5 }}>
-                    وصف المشكلة:
-                  </div>
-                  <p
-                    style={{
-                      margin: 0,
-                      fontSize: '0.85rem',
-                      lineHeight: 1.7,
-                      color: 'var(--text-secondary)',
-                    }}
-                  >
-                    {activeMission.description}
-                  </p>
+                {/* Shift Status Pill */}
+                <div className="emp-shift-badge">
+                  {isClockedIn
+                    ? `الوردية: ${currentTech.shiftStart} — ${currentTech.shiftEnd}`
+                    : 'سجّل حضورك لبدء الوردية'}
                 </div>
 
-                {activeMission.partsNeeded && (
-                  <div
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: 8,
-                      padding: '8px 14px',
-                      borderRadius: 12,
-                      background: 'var(--pastel-amber-bg)',
-                      color: 'var(--pastel-amber-text)',
-                      fontSize: '0.8rem',
-                      fontWeight: 800,
-                    }}
-                  >
-                    <Package size={15} />
-                    قطع الغيار المطلوبة: {activeMission.partsNeeded}
-                  </div>
-                )}
+                {/* Big Dark Espresso Check-in / Check-out Button */}
+                <button
+                  ref={checkBtnRef}
+                  type="button"
+                  onClick={handleToggleAttendance}
+                  className={`emp-attendance-btn ${isClockedIn ? 'clocked-in' : 'clocked-out'}`}
+                >
+                  {isClockedIn ? <LogOut size={19} /> : <LogIn size={19} />}
+                  <span>{isClockedIn ? 'سجّل انصراف' : 'سجّل حضور الآن'}</span>
+                </button>
+
+                <div className="emp-gps-caption">
+                  <MapPin size={13} />
+                  <span>الحضور بيتسجل بموقعك GPS وبتوقيت السيرفر</span>
+                </div>
               </div>
 
-              {/* Interactive Checklist & Technical Resolution Notes */}
-              <div className="card tech-stagger">
-                <div className="card-header">
-                  <div>
-                    <h3 className="card-title">
-                      <ClipboardList size={18} color="var(--accent-coral)" />
-                      قائمة فحص الصيانة وتقرير الحل
-                    </h3>
-                    <p className="card-subtitle">
-                      تم إنجاز {checklistDoneCount} من {activeMission.checklist.length} خطوات فحص
-                    </p>
-                  </div>
-                  <span className="badge resolved">
-                    <ShieldCheck size={14} />
-                    {Math.round((checklistDoneCount / Math.max(1, activeMission.checklist.length)) * 100)}%
-                  </span>
-                </div>
+              {/* QUICK ONE-TAP FIELD VISIT CTA (Exact inspiration: وصلت عند عميل — ابدأ زيارة) */}
+              <button
+                type="button"
+                disabled={!activeMission || activeMission.stage === 5}
+                onClick={() => activeMission && onAdvanceStage(activeMission.id)}
+                className={`emp-visit-pill-btn emp-fade ${
+                  activeMission?.stage === 5 ? 'done' : ''
+                }`}
+              >
+                <MapPin size={18} color="var(--accent-coral)" />
+                <span>{quickVisitButtonLabel()}</span>
+              </button>
 
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 9, marginBottom: 16 }}>
-                  {activeMission.checklist.map((item) => (
-                    <div
-                      key={item.id}
-                      className={`checklist-item ${item.done ? 'done' : ''}`}
-                      onClick={() => onToggleChecklist(activeMission.id, item.id)}
-                    >
-                      {item.done ? (
-                        <CheckCircle2 size={20} color="#2F8A5B" />
-                      ) : (
-                        <Circle size={20} color="var(--text-muted)" />
-                      )}
-                      <span
-                        style={{
-                          fontSize: '0.85rem',
-                          fontWeight: 700,
-                          textDecoration: item.done ? 'line-through' : 'none',
-                          opacity: item.done ? 0.78 : 1,
-                        }}
-                      >
-                        {item.label}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-
-                <div>
-                  <label
-                    className="form-label"
-                    style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}
-                  >
-                    <FileText size={14} />
-                    تقرير الفني وملاحظات الإصلاح (تظهر فوراً للمدير)
-                  </label>
-                  <textarea
-                    rows={3}
-                    className="form-textarea"
-                    placeholder="اكتب ما تم إصلاحه، قراءات القياس، أو أي توصيات للمركز..."
-                    value={activeMission.resolutionNotes}
-                    onChange={(e) => onUpdateNotes(activeMission.id, e.target.value)}
-                  />
-                </div>
+              {/* Live Management Visibility Footer Note */}
+              <div className="emp-live-reassure emp-fade">
+                <span className="live-dot" style={{ width: 7, height: 7 }} />
+                <span>
+                  {activeMission && activeMission.stage < 5
+                    ? `متبقي ${activeMission.etaMinutes || 12} د — الإدارة شايفة تحركك مباشر`
+                    : 'حالتك متزامنة لحظياً مع لوحة الإدارة'}
+                </span>
               </div>
             </div>
 
-            {/* Left Column: Stage Log + Technician's Today Queue */}
-            <div className="dashboard-stack">
-              {/* Live Stage Timeline Log */}
-              <div className="card tech-stagger">
-                <div className="card-header">
-                  <div>
-                    <h3 className="card-title">
-                      <Clock size={18} color="var(--accent-coral)" />
-                      السجل الزمني للرحلة
-                    </h3>
-                    <p className="card-subtitle">توثيق لحظي لكل مرحلة من استلام البلاغ للحل</p>
-                  </div>
+            {/* Column 2: Active Animated Journey Bar + My Missions List */}
+            <div className="emp-col-stack">
+              {/* Active Kinetic Journey Bar */}
+              {activeMission && (
+                <div className="emp-fade">
+                  <MissionProgressTracker
+                    mission={activeMission}
+                    technician={currentTech}
+                    onAdvanceStage={onAdvanceStage}
+                    onSetStage={onSetStage}
+                    compact
+                  />
+                </div>
+              )}
+
+              {/* «مهامك» Header + "+ سجّل مهمة" */}
+              <div className="emp-section-bar emp-fade">
+                <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                  <h2 style={{ margin: 0, fontSize: '1.18rem', fontWeight: 900 }}>مهامك</h2>
+                  <span className="emp-count-pill">{myMissions.length}</span>
                 </div>
 
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  {activeMission.stageLogs.map((log, idx) => {
-                    const st = MISSION_STAGES[log.stage];
+                <button
+                  type="button"
+                  className="emp-add-task-btn"
+                  onClick={() => setQuickTaskOpen((v) => !v)}
+                >
+                  <Plus size={15} />
+                  <span>سجّل مهمة</span>
+                </button>
+              </div>
+
+              {/* Inline Quick Task Form */}
+              {quickTaskOpen && (
+                <form onSubmit={handleAddQuickTask} className="card emp-fade" style={{ padding: 15 }}>
+                  <div style={{ fontSize: '0.86rem', fontWeight: 900, marginBottom: 10 }}>
+                    تسجيل زيارة أو مهمة صيانة سريعة
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    <input
+                      type="text"
+                      required
+                      className="form-input"
+                      placeholder="اكتب وصف العطل أو الزيارة..."
+                      value={quickTitle}
+                      onChange={(e) => setQuickTitle(e.target.value)}
+                    />
+                    <select
+                      className="form-select"
+                      value={quickSiteId}
+                      onChange={(e) => setQuickSiteId(e.target.value)}
+                    >
+                      {SITE_PRESETS.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.name} — {s.district}
+                        </option>
+                      ))}
+                    </select>
+                    <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                      <button
+                        type="button"
+                        className="pill-btn"
+                        style={{ height: 36 }}
+                        onClick={() => setQuickTaskOpen(false)}
+                      >
+                        إلغاء
+                      </button>
+                      <button type="submit" className="pill-btn coral" style={{ height: 36 }}>
+                        حفظ وإضافة لمهامي
+                      </button>
+                    </div>
+                  </div>
+                </form>
+              )}
+
+              {/* My Tasks Cards */}
+              {myMissions.length === 0 ? (
+                <div className="emp-task-card emp-fade" style={{ textAlign: 'center', padding: 28 }}>
+                  <div style={{ fontSize: '0.96rem', fontWeight: 900, marginBottom: 4 }}>
+                    لا توجد مهام مسجلة حالياً
+                  </div>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                    اضغط «+ سجّل مهمة» أو انتظر إسناد مهمة جديدة من المدير
+                  </div>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 11 }}>
+                  {myMissions.map((m) => {
+                    const st = MISSION_STAGES[m.stage];
+                    const isSelected = m.id === activeMission?.id;
                     return (
                       <div
-                        key={`${log.stage}-${idx}`}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'flex-start',
-                          gap: 10,
-                          padding: '10px 12px',
-                          borderRadius: 13,
-                          background: 'var(--bg-elevated)',
-                          border: '1px solid var(--border-soft)',
-                        }}
+                        key={m.id}
+                        className={`emp-task-card emp-fade ${isSelected ? 'active' : ''}`}
+                        onClick={() => onSelectMission(m.id)}
                       >
-                        <span
-                          style={{
-                            width: 10,
-                            height: 10,
-                            borderRadius: '50%',
-                            background: st.color,
-                            marginTop: 6,
-                            flexShrink: 0,
-                          }}
-                        />
-                        <div style={{ flex: 1 }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 6 }}>
-                            <strong style={{ fontSize: '0.83rem' }}>{st.title}</strong>
-                            <span style={{ fontSize: '0.74rem', fontWeight: 800, color: st.color }}>
-                              {log.timestamp}
-                            </span>
-                          </div>
-                          {log.note && (
-                            <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', marginTop: 2 }}>
-                              {log.note}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                          <div>
+                            <div style={{ fontSize: '0.98rem', fontWeight: 900, color: 'var(--text-primary)' }}>
+                              {m.site.name}
                             </div>
-                          )}
+                            <div
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 5,
+                                fontSize: '0.78rem',
+                                color: 'var(--text-muted)',
+                                marginTop: 3,
+                              }}
+                            >
+                              <MapPin size={13} color="var(--accent-coral)" />
+                              <span>{m.site.district}</span>
+                              <span>•</span>
+                              <Clock size={12} />
+                              <span>{m.scheduledTime}</span>
+                            </div>
+                          </div>
+
+                          <span
+                            style={{
+                              padding: '4px 10px',
+                              borderRadius: 999,
+                              background: st.softBg,
+                              color: st.color,
+                              fontSize: '0.73rem',
+                              fontWeight: 800,
+                              flexShrink: 0,
+                            }}
+                          >
+                            {st.shortTitle}
+                          </span>
+                        </div>
+
+                        <div style={{ fontSize: '0.84rem', fontWeight: 700, color: 'var(--text-secondary)', marginTop: 8 }}>
+                          {m.title}
+                        </div>
+
+                        <div className="mini-progress-track">
+                          <div className="mini-progress-fill" style={{ width: `${st.percent}%` }} />
+                        </div>
+
+                        <div style={{ display: 'flex', gap: 8, marginTop: 11, flexWrap: 'wrap' }}>
+                          <a
+                            href={`https://www.google.com/maps/search/?api=1&query=${m.site.coords.lat},${m.site.coords.lng}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            className="pill-btn"
+                            style={{ height: 34, fontSize: '0.75rem', textDecoration: 'none', flex: 1, justifyContent: 'center' }}
+                          >
+                            <Navigation size={13} color="var(--accent-coral)" />
+                            اللوكيشن
+                          </a>
+                          <a
+                            href={`tel:${m.site.contactPhone}`}
+                            onClick={(e) => e.stopPropagation()}
+                            className="pill-btn"
+                            style={{ height: 34, fontSize: '0.75rem', textDecoration: 'none', flex: 1, justifyContent: 'center' }}
+                          >
+                            <Phone size={13} />
+                            اتصال
+                          </a>
+                          <button
+                            type="button"
+                            className="pill-btn primary"
+                            style={{ height: 34, fontSize: '0.75rem', flex: 1.2, justifyContent: 'center' }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onSelectMission(m.id);
+                              onChangeSection('missions');
+                            }}
+                          >
+                            تفاصيل العطل
+                          </button>
                         </div>
                       </div>
                     );
                   })}
                 </div>
-              </div>
+              )}
+            </div>
+          </div>
+        )}
 
-              {/* My Missions Queue */}
-              <div className="card tech-stagger">
-                <div className="card-header">
-                  <div>
-                    <h3 className="card-title">
-                      <Wrench size={18} color="var(--accent-coral)" />
-                      مهامي المجدولة اليوم ({myMissions.length})
-                    </h3>
-                    <p className="card-subtitle">اضغط على أي مهمة لتحميلها في بار التتبع</p>
-                  </div>
+        {/* ================= TAB 2: MISSIONS & REPAIRS (الأعطال) ================= */}
+        {section === 'missions' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            {activeMission ? (
+              <>
+                <div className="emp-fade">
+                  <MissionProgressTracker
+                    mission={activeMission}
+                    technician={currentTech}
+                    onAdvanceStage={onAdvanceStage}
+                    onSetStage={onSetStage}
+                  />
                 </div>
 
-                {myMissions.length === 0 ? (
-                  <p style={{ fontSize: '0.84rem', color: 'var(--text-muted)', margin: 0 }}>
-                    لا توجد مهام مسندة حالياً لهذا الفني. يمكنك إسناد مهمة جديدة من لوحة المدير.
-                  </p>
-                ) : (
-                  <div className="missions-list">
-                    {myMissions.map((m) => {
-                      const st = MISSION_STAGES[m.stage];
-                      const isCurrent = m.id === activeMission.id;
-                      return (
+                <div className="emp-home-grid">
+                  {/* Checklist & Resolution Notes */}
+                  <div className="card emp-fade">
+                    <div className="card-header">
+                      <div>
+                        <h3 className="card-title">
+                          <ClipboardList size={18} color="var(--accent-coral)" />
+                          خطوات الإصلاح وتقرير الفني
+                        </h3>
+                        <p className="card-subtitle">
+                          أُنجز {checklistDoneCount} من {activeMission.checklist.length} خطوات
+                        </p>
+                      </div>
+                      <span className="badge resolved">
+                        <ShieldCheck size={14} />
+                        {Math.round((checklistDoneCount / Math.max(1, activeMission.checklist.length)) * 100)}%
+                      </span>
+                    </div>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 14 }}>
+                      {activeMission.checklist.map((item) => (
                         <div
-                          key={m.id}
-                          className={`mission-row-card ${isCurrent ? 'selected' : ''}`}
-                          style={{ cursor: 'pointer', padding: '12px 14px' }}
-                          onClick={() => onSelectMission(m.id)}
+                          key={item.id}
+                          className={`checklist-item ${item.done ? 'done' : ''}`}
+                          onClick={() => onToggleChecklist(activeMission.id, item.id)}
                         >
-                          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                            <span className={`badge ${m.stage === 5 ? 'resolved' : m.priority}`}>
-                              {m.code}
-                            </span>
-                            <span style={{ fontSize: '0.75rem', fontWeight: 800, color: st.color }}>
-                              {st.shortTitle} • {st.percent}%
-                            </span>
-                          </div>
-                          <div style={{ fontSize: '0.86rem', fontWeight: 800, marginTop: 6 }}>
-                            {m.title}
-                          </div>
-                          <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', marginTop: 4 }}>
-                            📍 {m.site.district} • 🕒 {m.scheduledTime}
-                          </div>
-                          <div className="mini-progress-track">
-                            <div className="mini-progress-fill" style={{ width: `${st.percent}%` }} />
-                          </div>
+                          {item.done ? (
+                            <CheckCircle2 size={19} color="#2F8A5B" />
+                          ) : (
+                            <Circle size={19} color="var(--text-muted)" />
+                          )}
+                          <span
+                            style={{
+                              fontSize: '0.84rem',
+                              fontWeight: 700,
+                              textDecoration: item.done ? 'line-through' : 'none',
+                            }}
+                          >
+                            {item.label}
+                          </span>
                         </div>
-                      );
-                    })}
+                      ))}
+                    </div>
+
+                    {activeMission.partsNeeded && (
+                      <div
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 7,
+                          padding: '7px 12px',
+                          borderRadius: 11,
+                          background: 'var(--pastel-amber-bg)',
+                          color: 'var(--pastel-amber-text)',
+                          fontSize: '0.78rem',
+                          fontWeight: 800,
+                          marginBottom: 12,
+                        }}
+                      >
+                        <Package size={14} />
+                        قطع الغيار: {activeMission.partsNeeded}
+                      </div>
+                    )}
+
+                    <div>
+                      <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                        <FileText size={14} />
+                        ملاحظات الحل (تظهر للمدير لحظياً)
+                      </label>
+                      <textarea
+                        rows={3}
+                        className="form-textarea"
+                        placeholder="اكتب ما تم إصلاحه وتوصياتك..."
+                        value={activeMission.resolutionNotes}
+                        onChange={(e) => onUpdateNotes(activeMission.id, e.target.value)}
+                      />
+                    </div>
                   </div>
-                )}
+
+                  {/* Live Map & Site Card */}
+                  <div className="card emp-fade">
+                    <div className="card-header">
+                      <div>
+                        <h3 className="card-title">
+                          <MapPin size={18} color="var(--accent-coral)" />
+                          خريطة اللوكيشن والمسار
+                        </h3>
+                        <p className="card-subtitle">{activeMission.site.address}</p>
+                      </div>
+                      <a
+                        href={`https://www.google.com/maps/search/?api=1&query=${activeMission.site.coords.lat},${activeMission.site.coords.lng}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="pill-btn primary"
+                        style={{ height: 34, fontSize: '0.76rem', textDecoration: 'none' }}
+                      >
+                        <ExternalLink size={13} />
+                        Google Maps
+                      </a>
+                    </div>
+                    <LiveFieldMap
+                      missions={myMissions}
+                      technicians={technicians}
+                      selectedMissionId={activeMission.id}
+                      onSelectMission={onSelectMission}
+                      height={290}
+                    />
+                  </div>
+                </div>
+              </>
+            ) : (
+              <div className="card emp-fade" style={{ textAlign: 'center', padding: 36 }}>
+                <h3 style={{ margin: '0 0 6px' }}>لا توجد أعطال مفتوحة حالياً</h3>
+                <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.84rem' }}>
+                  عند تعيين بلاغ جديد من الإدارة ستظهر تفاصيله وبار الرحلة هنا.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ================= TAB 3: MONTHLY SCHEDULE & ATTENDANCE (شهري) ================= */}
+        {section === 'monthly' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div className="kpi-grid emp-fade" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))' }}>
+              <div className="kpi-card sage">
+                <div className="kpi-label">أيام الحضور هذا الشهر</div>
+                <div className="kpi-value">18</div>
+                <div className="kpi-meta">التزام 98% بالمواعيد</div>
+              </div>
+              <div className="kpi-card peach">
+                <div className="kpi-label">زيارات منجزة</div>
+                <div className="kpi-value">{currentTech.completedToday + 26}</div>
+                <div className="kpi-meta">اليوم: {currentTech.completedToday}</div>
+              </div>
+              <div className="kpi-card amber">
+                <div className="kpi-label">التقييم الشهري</div>
+                <div className="kpi-value">{currentTech.rating} ★</div>
+                <div className="kpi-meta">أداء متميز</div>
+              </div>
+            </div>
+
+            <div className="card emp-fade">
+              <div className="card-header">
+                <div>
+                  <h3 className="card-title">
+                    <CalendarDays size={18} color="var(--accent-coral)" />
+                    مواعيد وأيام عملك الرسمية
+                  </h3>
+                  <p className="card-subtitle">
+                    محددة من إدارة العمليات • الوردية: {currentTech.shiftStart} إلى {currentTech.shiftEnd}
+                  </p>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
+                {(currentTech.workDays || []).map((day) => (
+                  <span key={day} className="day-chip active" style={{ cursor: 'default' }}>
+                    {day}
+                  </span>
+                ))}
+              </div>
+
+              <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+                🚐 المركبة المخصصة: <strong>{currentTech.vehicle}</strong> • حساب الدخول:{' '}
+                <code dir="ltr" style={{ fontWeight: 800 }}>@{currentTech.username}</code>
+              </div>
+            </div>
+
+            <div className="card emp-fade">
+              <div className="card-header">
+                <h3 className="card-title">سجل الحضور والانصراف الأخير</h3>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+                {[
+                  { day: 'اليوم — السبت', inTime: lastCheckTime, outTime: isClockedIn ? 'مستمر الآن' : lastCheckTime, status: 'حاضر GPS' },
+                  { day: 'الخميس 19 نوفمبر', inTime: currentTech.shiftStart, outTime: currentTech.shiftEnd, status: 'مكتمل' },
+                  { day: 'الأربعاء 18 نوفمبر', inTime: currentTech.shiftStart, outTime: currentTech.shiftEnd, status: 'مكتمل' },
+                ].map((row, idx) => (
+                  <div
+                    key={idx}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '11px 14px',
+                      borderRadius: 14,
+                      background: 'var(--bg-elevated)',
+                      border: '1px solid var(--border-soft)',
+                      flexWrap: 'wrap',
+                      gap: 8,
+                    }}
+                  >
+                    <strong style={{ fontSize: '0.86rem' }}>{row.day}</strong>
+                    <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                      حضور: {row.inTime} • انصراف: {row.outTime}
+                    </span>
+                    <span className="badge resolved">{row.status}</span>
+                  </div>
+                ))}
               </div>
             </div>
           </div>
-        </>
-      )}
+        )}
 
-      {/* SCHEDULE TAB */}
-      {section === 'schedule' && (
-        <div className="card tech-stagger">
-          <div className="card-header">
-            <div>
-              <h3 className="card-title">جدول مواعيد الصيانة — {currentTech.name}</h3>
-              <p className="card-subtitle">مرتبة حسب أوقات الزيارة والمواقع</p>
+        {/* ================= TAB 4: ADMIN / COMMUNICATIONS (الإدارة) ================= */}
+        {section === 'admin' && (
+          <div className="card emp-fade" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div className="card-header" style={{ marginBottom: 4 }}>
+              <div>
+                <h3 className="card-title">
+                  <MessageCircle size={18} color="var(--accent-coral)" />
+                  التواصل المباشر مع الإدارة
+                </h3>
+                <p className="card-subtitle">
+                  أرسل تحديثاً فورياً لغرفة عمليات المدير — يصل كتنبيه مباشر
+                </p>
+              </div>
             </div>
-          </div>
-          <div className="missions-list">
-            {myMissions.map((m) => {
-              const st = MISSION_STAGES[m.stage];
-              return (
+
+            {/* Quick Status Replies */}
+            <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
+              {[
+                'وصلت الموقع وجاري الفحص',
+                'أحتاج قطعة غيار إضافية',
+                'تأخير 10 دقائق بسبب الزحام',
+                'تم الإصلاح وتسليم المركز بنجاح',
+              ].map((quick) => (
+                <button
+                  key={quick}
+                  type="button"
+                  className="pill-btn"
+                  style={{ height: 34, fontSize: '0.76rem' }}
+                  onClick={() => handleSendMessage(quick)}
+                >
+                  {quick}
+                </button>
+              ))}
+            </div>
+
+            {/* Message Thread */}
+            <div
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 9,
+                padding: 12,
+                borderRadius: 16,
+                background: 'var(--bg-card-subtle)',
+                minHeight: 190,
+                maxHeight: 300,
+                overflowY: 'auto',
+              }}
+            >
+              {sentMessages.map((msg) => (
                 <div
-                  key={m.id}
-                  className="mission-row-card"
-                  style={{ cursor: 'pointer' }}
-                  onClick={() => {
-                    onSelectMission(m.id);
-                    onChangeSection('active');
+                  key={msg.id}
+                  style={{
+                    alignSelf: msg.from === 'tech' ? 'flex-start' : 'flex-end',
+                    maxWidth: '84%',
+                    padding: '10px 14px',
+                    borderRadius: 16,
+                    background:
+                      msg.from === 'tech'
+                        ? 'var(--accent-coral)'
+                        : 'var(--bg-elevated)',
+                    color: msg.from === 'tech' ? '#fff' : 'var(--text-primary)',
+                    border: msg.from === 'admin' ? '1px solid var(--border-soft)' : 'none',
                   }}
                 >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
-                    <div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <span className={`badge ${m.stage === 5 ? 'resolved' : m.priority}`}>
-                          {m.scheduledTime}
-                        </span>
-                        <strong>{m.title}</strong>
-                      </div>
-                      <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: 5 }}>
-                        📍 {m.site.name} — {m.site.address}
-                      </div>
-                    </div>
-                    <button type="button" className="pill-btn primary" style={{ height: 34, fontSize: '0.77rem' }}>
-                      فتح بار التتبع ({st.percent}%)
-                    </button>
+                  <div style={{ fontSize: '0.84rem', fontWeight: 700 }}>{msg.text}</div>
+                  <div style={{ fontSize: '0.68rem', opacity: 0.78, marginTop: 4 }}>
+                    {msg.from === 'tech' ? 'أنت' : 'غرفة الإدارة'} • {msg.time}
                   </div>
                 </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* MAP TAB */}
-      {section === 'map' && (
-        <div className="card tech-stagger">
-          <div className="card-header">
-            <div>
-              <h3 className="card-title">خريطة مساري ومواقع المراكز</h3>
-              <p className="card-subtitle">تحديد مسار الحركة المباشر ومواقع صيانات اليوم</p>
+              ))}
             </div>
+
+            {/* Send Input */}
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleSendMessage();
+              }}
+              style={{ display: 'flex', gap: 8 }}
+            >
+              <input
+                type="text"
+                className="form-input"
+                placeholder="اكتب رسالة للإدارة..."
+                value={adminMsg}
+                onChange={(e) => setAdminMsg(e.target.value)}
+              />
+              <button type="submit" className="pill-btn coral" style={{ flexShrink: 0 }}>
+                <Send size={15} />
+                إرسال
+              </button>
+            </form>
           </div>
-          <LiveFieldMap
-            missions={myMissions.length ? myMissions : missions}
-            technicians={technicians}
-            selectedMissionId={activeMission?.id || selectedMissionId}
-            onSelectMission={onSelectMission}
-            height={420}
-          />
-        </div>
-      )}
+        )}
+      </div>
+
+      {/* FLOATING GLASSMORPHIC PILL BOTTOM NAVIGATION DOCK (Inspired by screenshot) */}
+      <nav className="emp-floating-dock" aria-label="تنقل صفحة الموظف">
+        <button
+          type="button"
+          className={`emp-dock-btn ${section === 'home' ? 'active' : ''}`}
+          onClick={() => onChangeSection('home')}
+        >
+          <Home size={19} />
+          <span>الرئيسية</span>
+        </button>
+
+        <button
+          type="button"
+          className={`emp-dock-btn ${section === 'missions' ? 'active' : ''}`}
+          onClick={() => onChangeSection('missions')}
+        >
+          <Wrench size={19} />
+          <span>الأعطال</span>
+        </button>
+
+        <button
+          type="button"
+          className={`emp-dock-btn ${section === 'monthly' ? 'active' : ''}`}
+          onClick={() => onChangeSection('monthly')}
+        >
+          <Calendar size={19} />
+          <span>شهري</span>
+        </button>
+
+        <button
+          type="button"
+          className={`emp-dock-btn ${section === 'admin' ? 'active' : ''}`}
+          onClick={() => onChangeSection('admin')}
+        >
+          <MessageCircle size={19} />
+          <span>الإدارة</span>
+        </button>
+      </nav>
     </div>
   );
 };

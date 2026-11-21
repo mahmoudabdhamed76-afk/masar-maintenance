@@ -4,9 +4,7 @@ import {
   Building2,
   CalendarClock,
   CheckCircle2,
-  Compass,
   LayoutDashboard,
-  LogOut,
   MapPin,
   Menu,
   Moon,
@@ -76,7 +74,7 @@ export const App: React.FC = () => {
     urlInvite.isEmployeeLink ? 'technician' : 'manager'
   );
   const [managerSection, setManagerSection] = useState<ManagerSection>('overview');
-  const [techSection, setTechSection] = useState<TechSection>('active');
+  const [techSection, setTechSection] = useState<TechSection>('home');
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(false);
   const [assignModalOpen, setAssignModalOpen] = useState<boolean>(false);
   const [notifOpen, setNotifOpen] = useState<boolean>(false);
@@ -136,7 +134,6 @@ export const App: React.FC = () => {
       // ignore
     }
 
-    // Merge URL-invited technician if not already stored (so link works across phones/browsers!)
     if (urlInvite.invitedTech && !base.some((t) => t.username === urlInvite.invitedTech!.username)) {
       base = [urlInvite.invitedTech, ...base];
     }
@@ -289,11 +286,16 @@ export const App: React.FC = () => {
     );
   };
 
+  const handleSendAdminPing = (techName: string, message: string) => {
+    pushToast(message);
+    addNotification(`تحديث من ${techName}`, message, 'info');
+  };
+
   const handleInspectAsTechnician = (techId: string, missionId: string) => {
     setActiveTechId(techId);
     if (missionId) setSelectedMissionId(missionId);
     setPortal('technician');
-    setTechSection('active');
+    setTechSection('home');
     setSidebarOpen(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -333,7 +335,7 @@ export const App: React.FC = () => {
     if (firstMission) setSelectedMissionId(firstMission.id);
     setShowEmployeeLogin(false);
     setPortal('technician');
-    setTechSection('active');
+    setTechSection('home');
     pushToast(`أهلاً بك ${tech.name} — تم تسجيل الدخول بنجاح`);
   };
 
@@ -366,6 +368,49 @@ export const App: React.FC = () => {
   }
 
   const isStandaloneEmployeeSession = Boolean(loggedInEmployeeId);
+
+  // NATIVE STANDALONE EMPLOYEE APP SHELL (Clean mobile-first experience inspired by reference!)
+  if (portal === 'technician' || isStandaloneEmployeeSession) {
+    return (
+      <>
+        <TechnicianPortal
+          section={techSection}
+          onChangeSection={setTechSection}
+          technicians={technicians}
+          activeTechId={loggedInEmployeeId || activeTechId}
+          onChangeTechId={setActiveTechId}
+          missions={missions}
+          selectedMissionId={selectedMissionId}
+          onSelectMission={setSelectedMissionId}
+          onAdvanceStage={handleAdvanceStage}
+          onSetStage={handleSetStage}
+          onToggleChecklist={handleToggleChecklist}
+          onUpdateNotes={handleUpdateNotes}
+          onCreateQuickTask={handleCreateMission}
+          onSendAdminPing={handleSendAdminPing}
+          darkMode={darkMode}
+          onToggleDarkMode={() => setDarkMode((d) => !d)}
+          lockedToEmployee={isStandaloneEmployeeSession}
+          onLogoutEmployee={handleLogoutEmployee}
+          onSwitchToManager={
+            isStandaloneEmployeeSession ? undefined : () => setPortal('manager')
+          }
+        />
+
+        {/* TOASTS */}
+        <div className="toast-container">
+          {toasts.map((t) => (
+            <div key={t.id} className="toast-pill">
+              <CheckCircle2 size={16} color="#34D399" />
+              <span>{t.text}</span>
+            </div>
+          ))}
+        </div>
+      </>
+    );
+  }
+
+  // MANAGER DASHBOARD SHELL
   const unreadNotifs = notifications.filter((n) => n.unread).length;
   const activeCount = missions.filter((m) => m.stage < 5).length;
   const urgentCount = missions.filter((m) => m.priority === 'urgent' && m.stage < 5).length;
@@ -385,141 +430,91 @@ export const App: React.FC = () => {
             <Wrench size={26} />
           </div>
           <h2 className="brand-title">مسار الصيانة</h2>
-          <p className="brand-sub">
-            {isStandaloneEmployeeSession
-              ? 'بوابة الموظف الخاصة'
-              : 'إدارة الفنيين والمواقع الميدانية'}
-          </p>
+          <p className="brand-sub">إدارة الفنيين والمواقع الميدانية</p>
         </div>
 
         <nav className="sidebar-nav">
-          {!isStandaloneEmployeeSession && (
-            <>
-              <div className="nav-section-label">لوحة الإدارة والعمليات</div>
-
-              <button
-                type="button"
-                className={`nav-item ${portal === 'manager' && managerSection === 'overview' ? 'active' : ''}`}
-                onClick={() => {
-                  setPortal('manager');
-                  setManagerSection('overview');
-                  setSidebarOpen(false);
-                }}
-              >
-                <LayoutDashboard size={18} />
-                <span>الرئيسية (المدير)</span>
-              </button>
-
-              <button
-                type="button"
-                className={`nav-item ${portal === 'manager' && managerSection === 'missions' ? 'active' : ''}`}
-                onClick={() => {
-                  setPortal('manager');
-                  setManagerSection('missions');
-                  setSidebarOpen(false);
-                }}
-              >
-                <CalendarClock size={18} />
-                <span>مهام وأوقات الصيانة</span>
-                {urgentCount > 0 && <span className="nav-badge">{urgentCount}</span>}
-              </button>
-
-              <button
-                type="button"
-                className={`nav-item ${portal === 'manager' && managerSection === 'map' ? 'active' : ''}`}
-                onClick={() => {
-                  setPortal('manager');
-                  setManagerSection('map');
-                  setSidebarOpen(false);
-                }}
-              >
-                <MapPin size={18} />
-                <span>خريطة اللوكيشن GPS</span>
-                <span className="nav-badge live">{activeCount}</span>
-              </button>
-
-              <button
-                type="button"
-                className={`nav-item ${portal === 'manager' && managerSection === 'technicians' ? 'active' : ''}`}
-                onClick={() => {
-                  setPortal('manager');
-                  setManagerSection('technicians');
-                  setSidebarOpen(false);
-                }}
-              >
-                <Users size={18} />
-                <span>الموظفون والحسابات</span>
-                <span className="nav-badge live">{technicians.length}</span>
-              </button>
-
-              <button
-                type="button"
-                className="nav-item"
-                onClick={() => {
-                  setSidebarOpen(false);
-                  handleOpenAddTechnician();
-                }}
-              >
-                <UserPlus size={18} color="var(--accent-coral)" />
-                <span>+ إضافة موظف وحساب</span>
-              </button>
-            </>
-          )}
-
-          <div className="nav-section-label" style={{ marginTop: 10 }}>
-            بوابة الموظف / الفني
-          </div>
+          <div className="nav-section-label">لوحة الإدارة والعمليات</div>
 
           <button
             type="button"
-            className={`nav-item ${portal === 'technician' && techSection === 'active' ? 'active' : ''}`}
+            className={`nav-item ${managerSection === 'overview' ? 'active' : ''}`}
             onClick={() => {
-              setPortal('technician');
-              setTechSection('active');
+              setManagerSection('overview');
               setSidebarOpen(false);
             }}
           >
-            <Wrench size={18} />
-            <span>المهمة النشطة والبار</span>
+            <LayoutDashboard size={18} />
+            <span>الرئيسية (المدير)</span>
           </button>
 
           <button
             type="button"
-            className={`nav-item ${portal === 'technician' && techSection === 'schedule' ? 'active' : ''}`}
+            className={`nav-item ${managerSection === 'missions' ? 'active' : ''}`}
             onClick={() => {
-              setPortal('technician');
-              setTechSection('schedule');
+              setManagerSection('missions');
               setSidebarOpen(false);
             }}
           >
             <CalendarClock size={18} />
-            <span>جدول مواعيدي</span>
+            <span>مهام وأوقات الصيانة</span>
+            {urgentCount > 0 && <span className="nav-badge">{urgentCount}</span>}
           </button>
 
           <button
             type="button"
-            className={`nav-item ${portal === 'technician' && techSection === 'map' ? 'active' : ''}`}
+            className={`nav-item ${managerSection === 'map' ? 'active' : ''}`}
             onClick={() => {
-              setPortal('technician');
-              setTechSection('map');
+              setManagerSection('map');
               setSidebarOpen(false);
             }}
           >
-            <Compass size={18} />
-            <span>مسار الرحلة للمركز</span>
+            <MapPin size={18} />
+            <span>خريطة اللوكيشن GPS</span>
+            <span className="nav-badge live">{activeCount}</span>
           </button>
 
-          {isStandaloneEmployeeSession && (
-            <button
-              type="button"
-              className="nav-item"
-              style={{ marginTop: 12, color: '#DC2626' }}
-              onClick={handleLogoutEmployee}
-            >
-              <LogOut size={18} />
-              <span>تسجيل خروج</span>
-            </button>
-          )}
+          <button
+            type="button"
+            className={`nav-item ${managerSection === 'technicians' ? 'active' : ''}`}
+            onClick={() => {
+              setManagerSection('technicians');
+              setSidebarOpen(false);
+            }}
+          >
+            <Users size={18} />
+            <span>الموظفون والحسابات</span>
+            <span className="nav-badge live">{technicians.length}</span>
+          </button>
+
+          <button
+            type="button"
+            className="nav-item"
+            onClick={() => {
+              setSidebarOpen(false);
+              handleOpenAddTechnician();
+            }}
+          >
+            <UserPlus size={18} color="var(--accent-coral)" />
+            <span>+ إضافة موظف وحساب</span>
+          </button>
+
+          <div className="nav-section-label" style={{ marginTop: 10 }}>
+            معاينة تطبيق الموظف
+          </div>
+
+          <button
+            type="button"
+            className="nav-item"
+            onClick={() => {
+              setPortal('technician');
+              setTechSection('home');
+              setSidebarOpen(false);
+            }}
+          >
+            <Wrench size={18} />
+            <span>فتح تطبيق الفني</span>
+          </button>
         </nav>
 
         <div className="sidebar-footer">
@@ -545,50 +540,40 @@ export const App: React.FC = () => {
             </button>
 
             <div className="user-chip">
-              <div
-                className="user-avatar"
-                style={{
-                  background:
-                    portal === 'manager'
-                      ? 'var(--accent-espresso)'
-                      : 'var(--accent-coral)',
-                }}
-              >
-                {portal === 'manager' ? 'م' : 'ف'}
+              <div className="user-avatar" style={{ background: 'var(--accent-espresso)' }}>
+                م
               </div>
               <div>
                 <div style={{ fontSize: '0.84rem', fontWeight: 800, lineHeight: 1.2 }}>
                   مسار الصيانة
                 </div>
                 <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                  {isStandaloneEmployeeSession
-                    ? 'حساب فني ميداني موثق'
-                    : 'الفرع الرئيسي • القاهرة الكبرى'}
+                  الفرع الرئيسي • القاهرة الكبرى
                 </div>
               </div>
             </div>
 
-            {/* Role Switcher (Hidden in locked standalone employee login session) */}
-            {!isStandaloneEmployeeSession && (
-              <div className="role-switcher" role="tablist">
-                <button
-                  type="button"
-                  className={`role-tab ${portal === 'manager' ? 'active' : ''}`}
-                  onClick={() => setPortal('manager')}
-                >
-                  <Shield size={15} />
-                  صفحة المدير
-                </button>
-                <button
-                  type="button"
-                  className={`role-tab ${portal === 'technician' ? 'active' : ''}`}
-                  onClick={() => setPortal('technician')}
-                >
-                  <Wrench size={15} />
-                  صفحة الفني / الموظف
-                </button>
-              </div>
-            )}
+            <div className="role-switcher" role="tablist">
+              <button
+                type="button"
+                className="role-tab active"
+                onClick={() => setPortal('manager')}
+              >
+                <Shield size={15} />
+                صفحة المدير
+              </button>
+              <button
+                type="button"
+                className="role-tab"
+                onClick={() => {
+                  setPortal('technician');
+                  setTechSection('home');
+                }}
+              >
+                <Wrench size={15} />
+                صفحة الفني / الموظف
+              </button>
+            </div>
           </div>
 
           <div className="topbar-left" style={{ position: 'relative' }}>
@@ -617,26 +602,22 @@ export const App: React.FC = () => {
               )}
             </button>
 
-            {portal === 'manager' && !isStandaloneEmployeeSession && (
-              <>
-                <button
-                  type="button"
-                  className="pill-btn"
-                  onClick={handleOpenAddTechnician}
-                >
-                  <UserPlus size={16} color="var(--accent-coral)" />
-                  <span>إضافة موظف</span>
-                </button>
-                <button
-                  type="button"
-                  className="pill-btn coral"
-                  onClick={() => setAssignModalOpen(true)}
-                >
-                  <Plus size={16} />
-                  <span>تعيين صيانة</span>
-                </button>
-              </>
-            )}
+            <button
+              type="button"
+              className="pill-btn"
+              onClick={handleOpenAddTechnician}
+            >
+              <UserPlus size={16} color="var(--accent-coral)" />
+              <span>إضافة موظف</span>
+            </button>
+            <button
+              type="button"
+              className="pill-btn coral"
+              onClick={() => setAssignModalOpen(true)}
+            >
+              <Plus size={16} />
+              <span>تعيين صيانة</span>
+            </button>
 
             {/* Notifications Popover */}
             {notifOpen && (
@@ -703,128 +684,63 @@ export const App: React.FC = () => {
           </div>
         </header>
 
-        {/* ACTIVE PORTAL CONTENT */}
-        {portal === 'manager' && !isStandaloneEmployeeSession ? (
-          <ManagerDashboard
-            section={managerSection}
-            onChangeSection={setManagerSection}
-            missions={missions}
-            technicians={technicians}
-            selectedMissionId={selectedMissionId}
-            onSelectMission={setSelectedMissionId}
-            onOpenAssignModal={() => setAssignModalOpen(true)}
-            onOpenAddTechnician={handleOpenAddTechnician}
-            onEditTechnician={handleEditTechnician}
-            onViewTechCredentials={handleViewTechCredentials}
-            onAdvanceStage={handleAdvanceStage}
-            onSetStage={handleSetStage}
-            onInspectAsTechnician={handleInspectAsTechnician}
-          />
-        ) : (
-          <TechnicianPortal
-            section={techSection}
-            onChangeSection={setTechSection}
-            technicians={technicians}
-            activeTechId={loggedInEmployeeId || activeTechId}
-            onChangeTechId={setActiveTechId}
-            missions={missions}
-            selectedMissionId={selectedMissionId}
-            onSelectMission={setSelectedMissionId}
-            onAdvanceStage={handleAdvanceStage}
-            onSetStage={handleSetStage}
-            onToggleChecklist={handleToggleChecklist}
-            onUpdateNotes={handleUpdateNotes}
-            lockedToEmployee={isStandaloneEmployeeSession}
-            onLogoutEmployee={handleLogoutEmployee}
-          />
-        )}
+        <ManagerDashboard
+          section={managerSection}
+          onChangeSection={setManagerSection}
+          missions={missions}
+          technicians={technicians}
+          selectedMissionId={selectedMissionId}
+          onSelectMission={setSelectedMissionId}
+          onOpenAssignModal={() => setAssignModalOpen(true)}
+          onOpenAddTechnician={handleOpenAddTechnician}
+          onEditTechnician={handleEditTechnician}
+          onViewTechCredentials={handleViewTechCredentials}
+          onAdvanceStage={handleAdvanceStage}
+          onSetStage={handleSetStage}
+          onInspectAsTechnician={handleInspectAsTechnician}
+        />
       </main>
 
-      {/* MOBILE BOTTOM NAVIGATION BAR */}
+      {/* MOBILE BOTTOM NAVIGATION BAR FOR MANAGER */}
       <nav className="mobile-bottom-nav" aria-label="التنقل السريع للموبايل">
-        {isStandaloneEmployeeSession ? (
-          <>
-            <button
-              type="button"
-              className={`mobile-nav-btn ${techSection === 'active' ? 'active' : ''}`}
-              onClick={() => setTechSection('active')}
-            >
-              <Wrench size={18} />
-              <span>الرحلة</span>
-            </button>
-            <button
-              type="button"
-              className={`mobile-nav-btn ${techSection === 'schedule' ? 'active' : ''}`}
-              onClick={() => setTechSection('schedule')}
-            >
-              <CalendarClock size={18} />
-              <span>مواعيدي</span>
-            </button>
-            <button
-              type="button"
-              className={`mobile-nav-btn ${techSection === 'map' ? 'active' : ''}`}
-              onClick={() => setTechSection('map')}
-            >
-              <MapPin size={18} />
-              <span>الخريطة</span>
-            </button>
-            <button
-              type="button"
-              className="mobile-nav-btn"
-              onClick={handleLogoutEmployee}
-            >
-              <LogOut size={18} />
-              <span>خروج</span>
-            </button>
-          </>
-        ) : (
-          <>
-            <button
-              type="button"
-              className={`mobile-nav-btn ${portal === 'manager' && managerSection !== 'technicians' ? 'active' : ''}`}
-              onClick={() => {
-                setPortal('manager');
-                setManagerSection('overview');
-              }}
-            >
-              <LayoutDashboard size={18} />
-              <span>المدير</span>
-            </button>
+        <button
+          type="button"
+          className={`mobile-nav-btn ${managerSection !== 'technicians' ? 'active' : ''}`}
+          onClick={() => setManagerSection('overview')}
+        >
+          <LayoutDashboard size={18} />
+          <span>المدير</span>
+        </button>
 
-            <button
-              type="button"
-              className={`mobile-nav-btn ${portal === 'manager' && managerSection === 'technicians' ? 'active' : ''}`}
-              onClick={() => {
-                setPortal('manager');
-                setManagerSection('technicians');
-              }}
-            >
-              <Users size={18} />
-              <span>الموظفون</span>
-            </button>
+        <button
+          type="button"
+          className={`mobile-nav-btn ${managerSection === 'technicians' ? 'active' : ''}`}
+          onClick={() => setManagerSection('technicians')}
+        >
+          <Users size={18} />
+          <span>الموظفون</span>
+        </button>
 
-            <button
-              type="button"
-              className={`mobile-nav-btn ${portal === 'technician' ? 'active' : ''}`}
-              onClick={() => {
-                setPortal('technician');
-                setTechSection('active');
-              }}
-            >
-              <Wrench size={18} />
-              <span>الفني والبار</span>
-            </button>
+        <button
+          type="button"
+          className="mobile-nav-btn"
+          onClick={() => {
+            setPortal('technician');
+            setTechSection('home');
+          }}
+        >
+          <Wrench size={18} />
+          <span>صفحة الفني</span>
+        </button>
 
-            <button
-              type="button"
-              className="mobile-nav-btn"
-              onClick={() => setAssignModalOpen(true)}
-            >
-              <Building2 size={18} />
-              <span>+ صيانة</span>
-            </button>
-          </>
-        )}
+        <button
+          type="button"
+          className="mobile-nav-btn"
+          onClick={() => setAssignModalOpen(true)}
+        >
+          <Building2 size={18} />
+          <span>+ صيانة</span>
+        </button>
       </nav>
 
       {/* ASSIGN NEW MISSION MODAL */}

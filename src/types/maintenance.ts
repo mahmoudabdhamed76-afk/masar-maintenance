@@ -99,4 +99,4 @@ export interface AppNotification {
 
 export type ActivePortal = 'manager' | 'technician';
 export type ManagerSection = 'overview' | 'missions' | 'map' | 'technicians';
-export type TechSection = 'active' | 'schedule' | 'map';
+export type TechSection = 'home' | 'missions' | 'monthly' | 'admin';
